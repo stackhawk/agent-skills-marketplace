@@ -1,0 +1,36 @@
+{
+  "name": "stackhawk",
+  "owner": {
+    "name": "StackHawk",
+    "email": "support@stackhawk.com",
+    "url": "https://www.stackhawk.com"
+  },
+  "description": "Official StackHawk skills for Claude. Dynamic application and API security testing (DAST) powered by HawkScan.",
+  "homepage": "https://github.com/stackhawk/agent-skills",
+  "plugins": [
+    {
+      "name": "hawkscan",
+      "description": "Configure, run, and interpret HawkScan DAST results inside Claude Code. Generates stackhawk.yml configs, runs scans via CLI or Docker, and transforms security findings into prioritized fix tasks for your coding agent.",
+      "category": "security",
+      "source": {
+        "source": "github",
+        "repo": "stackhawk/agent-skills",
+        "ref": "main",
+        "sha": "9ec78a4a7f60341c08a27c6110c4c49ffcd6596e"
+      },
+      "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/hawkscan"
+    },
+    {
+      "name": "api",
+      "description": "Query the StackHawk platform API for security posture reporting, findings analysis, and app management.",
+      "category": "security",
+      "source": {
+        "source": "github",
+        "repo": "stackhawk/agent-skills",
+        "ref": "main",
+        "sha": "9ec78a4a7f60341c08a27c6110c4c49ffcd6596e"
+      },
+      "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/api"
+    }
+  ]
+}
