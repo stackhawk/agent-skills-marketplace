@@ -1,0 +1,41 @@
+{
+  "name": "stackhawk",
+  "interface": {
+    "displayName": "StackHawk Agent Skills",
+    "shortDescription": "Dynamic application and API security testing (DAST) powered by HawkScan."
+  },
+  "plugins": [
+    {
+      "name": "hawkscan",
+      "description": "Configure, run, and interpret HawkScan DAST results inside Codex. Generates stackhawk.yml configs, runs scans via CLI or Docker, and transforms security findings into prioritized fix tasks for your coding agent.",
+      "category": "Security",
+      "source": {
+        "source": "github",
+        "repo": "stackhawk/agent-skills",
+        "ref": "v1.7.3",
+        "sha": "aed9d8877c5aa17d7aeffe39ab67e5a2dcd00b56"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/hawkscan",
+      "version": "1.7.3"
+    },
+    {
+      "name": "stackhawk-api",
+      "description": "Query the StackHawk platform API for security posture reporting, findings analysis, and app management.",
+      "category": "Security",
+      "source": {
+        "source": "github",
+        "repo": "stackhawk/agent-skills",
+        "ref": "v1.7.3",
+        "sha": "aed9d8877c5aa17d7aeffe39ab67e5a2dcd00b56"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/api",
+      "version": "1.7.3"
+    }
+  ]
+}
