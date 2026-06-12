@@ -15,11 +15,12 @@
       "source": {
         "source": "github",
         "repo": "stackhawk/agent-skills",
-        "ref": "v1.13.0",
-        "sha": "6f1d1cd8776375ddbc9523b647306c4986c0eb58"
+        "path": "plugins/hawkscan",
+        "ref": "v1.13.1",
+        "sha": "89a89fabee722b79707eca9ea8d8f2e81fd5d9f9"
       },
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/hawkscan",
-      "version": "1.13.0"
+      "version": "1.13.1"
     },
     {
       "name": "stackhawk-api",
@@ -28,11 +29,12 @@
       "source": {
         "source": "github",
         "repo": "stackhawk/agent-skills",
-        "ref": "v1.13.0",
-        "sha": "6f1d1cd8776375ddbc9523b647306c4986c0eb58"
+        "path": "plugins/api",
+        "ref": "v1.13.1",
+        "sha": "89a89fabee722b79707eca9ea8d8f2e81fd5d9f9"
       },
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/api",
-      "version": "1.13.0"
+      "version": "1.13.1"
     }
   ]
 }
