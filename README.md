@@ -2,49 +2,65 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Claude Code plugin marketplace catalog for [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills).
+Plugin marketplace catalog for [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills).
 
-This is an open-source, publicly installable catalog. It holds only the catalog (`marketplace.json`) that controls which version of `agent-skills` marketplace consumers install. Bumping the pinned version here rolls out updates independently of the plugin development cadence.
+This is an open-source, publicly installable catalog. It holds only the catalogs that control which version of `agent-skills` marketplace consumers install — each plugin pinned to a tested GA release (`ref` + `sha`). Bumping the pin here rolls out updates on StackHawk's release cadence, independently of the plugin development cadence.
+
+The catalog publishes two plugins: **`hawkscan`** (DAST scanning) and **`stackhawk-api`** (StackHawk platform API).
 
 ## Install
 
-In Claude Code:
+The marketplace serves the agents whose plugin systems can pin a remote source. Pick yours:
+
+### Claude Code
 
 ```
 /plugin marketplace add stackhawk/agent-skills-marketplace
 /plugin install hawkscan@stackhawk
-/plugin install api@stackhawk
+/plugin install stackhawk-api@stackhawk
 ```
+
+### Codex
+
+```
+codex plugin marketplace add stackhawk/agent-skills-marketplace
+codex plugin add hawkscan@stackhawk
+codex plugin add stackhawk-api@stackhawk
+```
+
+### GitHub Copilot CLI
+
+```
+copilot plugin marketplace add stackhawk/agent-skills-marketplace
+copilot plugin install hawkscan@stackhawk
+copilot plugin install stackhawk-api@stackhawk
+```
+
+> **Cursor** and **Antigravity (`agy`)** don't consume this marketplace — they install directly from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills) (Cursor copies the generated `.mdc` rules; `agy plugin install <agent-skills repo URL>`). See the agent-skills README for their steps.
 
 ## Structure
 
 ```
-.claude-plugin/
-└── marketplace.json   # Catalog pointing at stackhawk/agent-skills at a pinned ref + SHA
+.claude-plugin/marketplace.json   # Claude Code + GitHub Copilot CLI — github source + path
+.agents/plugins/marketplace.json  # Codex — git-subdir source
+.codex-plugin/marketplace.json    # legacy Codex path (back-compat)
 ```
+
+Every plugin entry points at `stackhawk/agent-skills` at a subdirectory (`plugins/<name>`), pinned to a release `ref` + `sha`. The per-tool source schema differs (Claude/Copilot use a `github` source; Codex uses `git-subdir`), which is why there is more than one catalog.
 
 ## Updating the pinned version
 
-When a new `agent-skills` release is tagged:
-
-1. Get the SHA for the new tag:
-   ```bash
-   gh api repos/stackhawk/agent-skills/git/refs/tags/vX.Y.Z --jq '.object.sha'
-   ```
-
-2. Update `.claude-plugin/marketplace.json` — set `ref` to `vX.Y.Z` and `sha` to the new SHA for each plugin entry.
-
-3. Open a PR, get it reviewed, merge.
+**These catalogs are generated, not hand-edited.** When `agent-skills` cuts a release, its `release.yml` runs `scripts/generate-marketplace-catalogs.py` and pushes the regenerated catalogs here automatically — pinning every plugin to the new tag + SHA in each tool's schema. To roll a new version out to consumers, **release `agent-skills`**; don't edit `marketplace.json` by hand (a release will overwrite it).
 
 ## Why a separate repo
 
-- `agent-skills` iterates continuously; this repo only changes when we deliberately roll a version to consumers
-- SHA pinning alongside `ref` guarantees reproducibility even if a tag is accidentally moved
-- Public and open source so any Claude Code user can install StackHawk skills directly
+- `agent-skills` iterates continuously; this repo only changes when we deliberately roll a GA version to consumers
+- SHA pinning alongside `ref` guarantees reproducibility even if a tag is moved
+- Public and open source so any supported agent can install StackHawk skills directly
 
 ## Contributing
 
-This repo is intentionally minimal — the catalog pin and the README. If you want to contribute new skills or improvements, head to [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills).
+The catalogs are generated from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills) — to add or change skills, contribute there. The generator and publisher live in that repo (`scripts/generate-marketplace-catalogs.py` and `.github/workflows/release.yml`).
 
 ## License
 
