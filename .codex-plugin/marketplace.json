@@ -11,14 +11,14 @@
         "source": "git-subdir",
         "url": "https://github.com/stackhawk/agent-skills.git",
         "path": "./plugins/hawkscan",
-        "ref": "v2.0.0",
-        "sha": "b97573aedb94fdb569763fb81436b27075714368"
+        "ref": "v2.1.0",
+        "sha": "8800cacfab3eb68e2943b551a6b51a07bfe7b247"
       },
       "policy": {
         "installation": "AVAILABLE"
       },
       "category": "Security",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "description": "Configure, run, and interpret HawkScan DAST results inside Claude Code. Generates stackhawk.yml configs, runs scans via CLI or Docker, and transforms security findings into prioritized fix tasks for your coding agent.",
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/hawkscan"
     },
@@ -28,14 +28,14 @@
         "source": "git-subdir",
         "url": "https://github.com/stackhawk/agent-skills.git",
         "path": "./plugins/api",
-        "ref": "v2.0.0",
-        "sha": "b97573aedb94fdb569763fb81436b27075714368"
+        "ref": "v2.1.0",
+        "sha": "8800cacfab3eb68e2943b551a6b51a07bfe7b247"
       },
       "policy": {
         "installation": "AVAILABLE"
       },
       "category": "Security",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "description": "Query the StackHawk platform API for security posture reporting, findings analysis, and app management.",
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/api"
     }
