@@ -16,11 +16,11 @@
         "source": "github",
         "repo": "stackhawk/agent-skills",
         "path": "plugins/hawkscan",
-        "ref": "v2.2.0",
-        "sha": "5dcc3eb5ea1885292f29359467a3a9aa0fbfb2f4"
+        "ref": "v2.4.0",
+        "sha": "ba4bab433d31dc313de2ac6e72a43318b31f28dd"
       },
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/hawkscan",
-      "version": "2.2.0"
+      "version": "2.4.0"
     },
     {
       "name": "stackhawk-api",
@@ -30,11 +30,11 @@
         "source": "github",
         "repo": "stackhawk/agent-skills",
         "path": "plugins/api",
-        "ref": "v2.2.0",
-        "sha": "5dcc3eb5ea1885292f29359467a3a9aa0fbfb2f4"
+        "ref": "v2.4.0",
+        "sha": "ba4bab433d31dc313de2ac6e72a43318b31f28dd"
       },
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/api",
-      "version": "2.2.0"
+      "version": "2.4.0"
     },
     {
       "name": "hawkscan-ci",
@@ -44,11 +44,11 @@
         "source": "github",
         "repo": "stackhawk/agent-skills",
         "path": "plugins/hawkscan-ci",
-        "ref": "v2.2.0",
-        "sha": "5dcc3eb5ea1885292f29359467a3a9aa0fbfb2f4"
+        "ref": "v2.4.0",
+        "sha": "ba4bab433d31dc313de2ac6e72a43318b31f28dd"
       },
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/hawkscan-ci",
-      "version": "2.2.0"
+      "version": "2.4.0"
     },
     {
       "name": "stackhawk-data-seed",
@@ -58,11 +58,11 @@
         "source": "github",
         "repo": "stackhawk/agent-skills",
         "path": "plugins/stackhawk-data-seed",
-        "ref": "v2.2.0",
-        "sha": "5dcc3eb5ea1885292f29359467a3a9aa0fbfb2f4"
+        "ref": "v2.4.0",
+        "sha": "ba4bab433d31dc313de2ac6e72a43318b31f28dd"
       },
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/stackhawk-data-seed",
-      "version": "2.2.0"
+      "version": "2.4.0"
     },
     {
       "name": "wingman",
@@ -72,11 +72,11 @@
         "source": "github",
         "repo": "stackhawk/agent-skills",
         "path": "plugins/wingman",
-        "ref": "v2.2.0",
-        "sha": "5dcc3eb5ea1885292f29359467a3a9aa0fbfb2f4"
+        "ref": "v2.4.0",
+        "sha": "ba4bab433d31dc313de2ac6e72a43318b31f28dd"
       },
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/wingman",
-      "version": "2.2.0"
+      "version": "2.4.0"
     },
     {
       "name": "stackhawk-optimize",
@@ -86,11 +86,11 @@
         "source": "github",
         "repo": "stackhawk/agent-skills",
         "path": "plugins/optimize",
-        "ref": "v2.2.0",
-        "sha": "5dcc3eb5ea1885292f29359467a3a9aa0fbfb2f4"
+        "ref": "v2.4.0",
+        "sha": "ba4bab433d31dc313de2ac6e72a43318b31f28dd"
       },
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/optimize",
-      "version": "2.2.0"
+      "version": "2.4.0"
     }
   ]
 }
