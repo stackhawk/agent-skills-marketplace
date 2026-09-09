@@ -4,9 +4,9 @@
 
 Plugin marketplace catalog for [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills).
 
-This is an open-source, publicly installable catalog. It holds only the catalogs that control which version of `agent-skills` marketplace consumers install — each plugin pinned to a tested GA release (`ref` + `sha`). Bumping the pin here rolls out updates on StackHawk's release cadence, independently of the plugin development cadence.
+This is an open-source, publicly installable catalog. It holds the catalogs that control which version of `agent-skills` marketplace consumers install — each plugin pinned to a tested GA release (`ref` + `sha`) — plus a vendored copy of the released skills (`skills/`) for tools that install from `SKILL.md` files directly. Bumping the pin here rolls out updates on StackHawk's release cadence, independently of the plugin development cadence.
 
-The catalog publishes two plugins: **`hawkscan`** (DAST scanning) and **`stackhawk-api`** (StackHawk platform API).
+The catalog publishes six plugins: **`hawkscan`** (DAST scanning), **`stackhawk-api`** (StackHawk platform API), **`hawkscan-ci`** (CI integration), **`stackhawk-data-seed`** (seed data for authenticated scans), **`stackhawk-optimize`** (scan tuning), and **`wingman`** (umbrella: installs the default skill set).
 
 ## Install
 
@@ -36,6 +36,18 @@ copilot plugin install hawkscan@stackhawk
 copilot plugin install stackhawk-api@stackhawk
 ```
 
+### skills CLI (npx)
+
+The [`skills` CLI](https://github.com/vercel-labs/skills) discovers `SKILL.md` files and ignores `marketplace.json`, so it installs from the vendored `skills/` directory instead of the catalog:
+
+```
+npx skills add stackhawk/agent-skills-marketplace --all
+```
+
+Add `-g` for a user-level install. This installs five skills: `hawkscan`, `stackhawk-api`, `hawkscan-ci`, `stackhawk-data-seed`, and `stackhawk-optimize`. To move to the next GA release, run `npx skills update` — the CLI re-fetches the default branch and compares folder hashes.
+
+This path installs skills only (`SKILL.md` + `references/`), not plugin hooks. For the full plugin with hooks, use the per-agent plugin commands above; each also has a scriptable CLI form (`claude plugin install wingman@stackhawk`, `codex plugin add hawkscan@stackhawk`, `copilot plugin install wingman@stackhawk`) after the matching `marketplace add`.
+
 > **Cursor** and **Antigravity (`agy`)** don't consume this marketplace — they install directly from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills) (Cursor copies the generated `.mdc` rules; `agy plugin install <agent-skills repo URL>`). See the agent-skills README for their steps.
 
 ## Structure
@@ -44,13 +56,14 @@ copilot plugin install stackhawk-api@stackhawk
 .claude-plugin/marketplace.json   # Claude Code + GitHub Copilot CLI — github source + path
 .agents/plugins/marketplace.json  # Codex — git-subdir source
 .codex-plugin/marketplace.json    # legacy Codex path (back-compat)
+skills/<name>/                    # vendored GA skills for the `skills` CLI — generated, do not edit
 ```
 
 Every plugin entry points at `stackhawk/agent-skills` at a subdirectory (`plugins/<name>`), pinned to a release `ref` + `sha`. The per-tool source schema differs (Claude/Copilot use a `github` source; Codex uses `git-subdir`), which is why there is more than one catalog.
 
 ## Updating the pinned version
 
-**These catalogs are generated, not hand-edited.** When `agent-skills` cuts a release, its `release.yml` runs `scripts/generate-marketplace-catalogs.py` and pushes the regenerated catalogs here automatically — pinning every plugin to the new tag + SHA in each tool's schema. To roll a new version out to consumers, **release `agent-skills`**; don't edit `marketplace.json` by hand (a release will overwrite it).
+**These catalogs are generated, not hand-edited.** When `agent-skills` cuts a release, its `release.yml` runs `scripts/generate-marketplace-catalogs.py` and pushes the regenerated catalogs here automatically — pinning every plugin to the new tag + SHA in each tool's schema. The same release run also regenerates `skills/` (via `scripts/generate-marketplace-skills.py`) from the released skill directories. To roll a new version out to consumers, **release `agent-skills`**; don't edit `marketplace.json` or `skills/` by hand (a release will overwrite them).
 
 ## Why a separate repo
 
