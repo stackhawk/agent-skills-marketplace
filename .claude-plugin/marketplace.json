@@ -6,7 +6,6 @@
     "url": "https://www.stackhawk.com"
   },
   "description": "Official StackHawk skills for Claude. Dynamic application and API security testing (DAST) powered by HawkScan.",
-  "homepage": "https://github.com/stackhawk/agent-skills",
   "plugins": [
     {
       "name": "hawkscan",
