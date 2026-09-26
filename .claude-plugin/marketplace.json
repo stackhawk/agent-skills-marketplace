@@ -11,13 +11,7 @@
       "name": "hawkscan",
       "description": "Configure, run, and interpret HawkScan DAST results inside Claude Code. Generates stackhawk.yml configs, runs scans via CLI or Docker, and transforms security findings into prioritized fix tasks for your coding agent.",
       "category": "security",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "plugins/hawkscan",
-        "ref": "v2.5.1",
-        "sha": "6bef648070cd8c712d17fb53fbea3d84699b2aa1"
-      },
+      "source": "./plugins/hawkscan",
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/hawkscan",
       "version": "2.5.1"
     },
@@ -25,13 +19,7 @@
       "name": "stackhawk-api",
       "description": "Query the StackHawk platform API for security posture reporting, findings analysis, and app management.",
       "category": "security",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "plugins/api",
-        "ref": "v2.5.1",
-        "sha": "6bef648070cd8c712d17fb53fbea3d84699b2aa1"
-      },
+      "source": "./plugins/stackhawk-api",
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/api",
       "version": "2.5.1"
     },
@@ -39,13 +27,7 @@
       "name": "hawkscan-ci",
       "description": "Configure HawkScan in your CI/CD pipeline. Provider-agnostic: detects GitHub Actions, GitLab CI, Jenkins, CircleCI, Azure Pipelines, Bitbucket, Buildkite, and other CI systems from repo files, edits the pipeline file in place, and prompts for HAWK_API_KEY storage (CI-native secrets store or external secrets manager).",
       "category": "security",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "plugins/hawkscan-ci",
-        "ref": "v2.5.1",
-        "sha": "6bef648070cd8c712d17fb53fbea3d84699b2aa1"
-      },
+      "source": "./plugins/hawkscan-ci",
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/hawkscan-ci",
       "version": "2.5.1"
     },
@@ -53,13 +35,7 @@
       "name": "stackhawk-data-seed",
       "description": "Read a target repo and emit checked-in seed artifacts so HawkScan has data to scan. Generates SQL / HTTP / gRPC / Mongo / shell steps across the target repo and any upstream services it depends on, plus a manifest and a credentials handoff file that hawkscan consumes.",
       "category": "security",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "plugins/stackhawk-data-seed",
-        "ref": "v2.5.1",
-        "sha": "6bef648070cd8c712d17fb53fbea3d84699b2aa1"
-      },
+      "source": "./plugins/stackhawk-data-seed",
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/stackhawk-data-seed",
       "version": "2.5.1"
     },
@@ -67,13 +43,7 @@
       "name": "wingman",
       "description": "StackHawk umbrella \u2014 one-command install of the default skill set (hawkscan, api, data-seed, optimize).",
       "category": "security",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "plugins/wingman",
-        "ref": "v2.5.1",
-        "sha": "6bef648070cd8c712d17fb53fbea3d84699b2aa1"
-      },
+      "source": "./plugins/wingman",
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/wingman",
       "version": "2.5.1"
     },
@@ -81,13 +51,7 @@
       "name": "stackhawk-optimize",
       "description": "Analyze a codebase and produce an optimal HawkScan setup (tech flags, scan policy, stackhawk.yml), apply it as a non-destructive trial, run one trial scan, and promote or discard.",
       "category": "security",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "plugins/optimize",
-        "ref": "v2.5.1",
-        "sha": "6bef648070cd8c712d17fb53fbea3d84699b2aa1"
-      },
+      "source": "./plugins/stackhawk-optimize",
       "homepage": "https://github.com/stackhawk/agent-skills/tree/main/plugins/optimize",
       "version": "2.5.1"
     }
