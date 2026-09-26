@@ -20,6 +20,12 @@ The marketplace serves the agents whose plugin systems can pin a remote source. 
 /plugin install stackhawk-api@stackhawk
 ```
 
+### Anthropic directory submissions
+
+Submit each plugin bundle from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills), where its `.claude-plugin/plugin.json` and components live. This marketplace repository is an install catalog, not a plugin bundle. In the [developer portal](https://claude.ai/directory/manage), use `stackhawk/agent-skills` as the repository and submit each desired `plugins/<path>` folder separately. The paths are `plugins/hawkscan`, `plugins/api` (plugin name `stackhawk-api`), `plugins/hawkscan-ci`, `plugins/stackhawk-data-seed`, `plugins/optimize` (plugin name `stackhawk-optimize`), and `plugins/wingman`.
+
+Run `claude plugin validate --strict plugins/<path>` in the `agent-skills` repository for each folder, then use the portal's **Validate** action on the commit you intend to submit. The [portal checklist](https://claude.com/docs/plugins/pre-submission-checklist) checks more than the CLI, including a README of at least 40 words in each plugin folder. Choose the intended tracked branch or tag in the portal and validate again after changing its commit. Submission and publication are separate actions.
+
 ### Codex
 
 ```
@@ -53,13 +59,14 @@ This path installs skills only (`SKILL.md` + `references/`), not plugin hooks. F
 ## Structure
 
 ```
-.claude-plugin/marketplace.json   # Claude Code + GitHub Copilot CLI — github source + path
+.claude-plugin/marketplace.json   # Claude Code - git-subdir source
 .agents/plugins/marketplace.json  # Codex — git-subdir source
 .codex-plugin/marketplace.json    # legacy Codex path (back-compat)
+.github/plugin/marketplace.json   # GitHub Copilot CLI - github source + path
 skills/<name>/                    # vendored GA skills for the `skills` CLI — generated, do not edit
 ```
 
-Every plugin entry points at `stackhawk/agent-skills` at a subdirectory (`plugins/<name>`), pinned to a release `ref` + `sha`. The per-tool source schema differs (Claude/Copilot use a `github` source; Codex uses `git-subdir`), which is why there is more than one catalog.
+Every plugin entry points at `stackhawk/agent-skills` at a subdirectory (`plugins/<name>`), pinned to a release `ref` + `sha`. Claude Code and Codex use a `git-subdir` source, while GitHub Copilot CLI uses a `github` source. Each tool reads its own catalog.
 
 ## Updating the pinned version
 
