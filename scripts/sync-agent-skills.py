@@ -108,6 +108,9 @@ def prepare_plugins(stage, archive_root, plugins, version):
             "/plugin marketplace add stackhawk/agent-skills\n",
             "/plugin marketplace add stackhawk/agent-skills-marketplace\n",
         ).replace(
+            f"/plugin install {PurePosixPath(upstream_path).name}@stackhawk",
+            f"/plugin install {name}@stackhawk",
+        ).replace(
             "https://support.stackhawk.com", URL_FIELDS["supportUrl"]
         )
         readme.write_text(text)

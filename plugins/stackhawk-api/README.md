@@ -27,7 +27,7 @@ The skill uses the combined `hawk` CLI (`hawk op …`) — most operations colla
 /plugin marketplace add stackhawk/agent-skills-marketplace
 
 # Install the StackHawk API skill
-/plugin install api@stackhawk
+/plugin install stackhawk-api@stackhawk
 ```
 
 ## Usage

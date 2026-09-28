@@ -74,18 +74,27 @@ The Claude catalog uses local paths so the directory can inspect each plugin. Th
 
 ## Updating the pinned version
 
-**The catalogs, plugin snapshots, and standalone skills are generated.** After `agent-skills` cuts a release, use a local checkout that contains its tag:
+**The catalogs, plugin snapshots, and standalone skills are generated.** Do not edit the generated output by hand.
+
+The `agent-skills` release workflow does the sync. It does not write the external-source Claude catalog. For each release tag, it runs `scripts/sync-agent-skills.py` from this repository and runs the tests. Then it opens a sync pull request here for review. Merge that pull request to publish the release.
+
+Merge this repository's local-path layout before the next `agent-skills` release is dispatched. The release workflow needs `scripts/sync-agent-skills.py` in this repository.
+
+To sync by hand, use a local `agent-skills` checkout that contains the release tag:
 
 ```bash
 python3 scripts/sync-agent-skills.py --source-repo /path/to/agent-skills --tag vX.Y.Z
-claude plugin validate --strict .
-for plugin in plugins/*; do claude plugin validate --strict "$plugin"; done
 python3 -m unittest discover -s tests
 ```
 
-The script verifies the tag against `VERSION`, records its SHA in `sources.json`, refuses a moved tag, copies the six plugin folders, adds verified StackHawk listing URLs, supplies missing README files from `overrides/`, and regenerates all catalogs and standalone skills. It keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing. Do not edit the generated output by hand.
+To preview the directory checks locally, run the Claude validator on the catalog and on each plugin:
 
-The existing `agent-skills` release workflow still writes the older external-source Claude catalog. It must stop writing that catalog before the next release, or it will undo the local-path layout. A future release workflow can open a sync change for review by running this script; that automation is not part of this repository.
+```bash
+claude plugin validate --strict .
+for plugin in plugins/*; do claude plugin validate --strict "$plugin"; done
+```
+
+The script verifies the tag against `VERSION`, records its SHA in `sources.json`, and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
 
 ## Why a separate repo
 

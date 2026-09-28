@@ -39,6 +39,8 @@ class ReleaseLayoutTest(unittest.TestCase):
                     self.assertTrue(manifest[field].startswith("https://"))
                 readme = (root / "README.md").read_text()
                 self.assertGreaterEqual(len(re.findall(r"\b[\w-]+\b", readme)), 40)
+                installed = re.findall(r"/plugin install ([\w-]+)@stackhawk", readme)
+                self.assertTrue(set(installed).issubset(self.plugins), installed)
 
     def test_component_plugins_have_skills_and_wingman_resolves_locally(self):
         for name in self.plugins:
