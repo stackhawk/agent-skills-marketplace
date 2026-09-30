@@ -1,0 +1,13 @@
+{
+  "repository": "stackhawk/agent-skills",
+  "tag": "v2.5.1",
+  "sha": "6bef648070cd8c712d17fb53fbea3d84699b2aa1",
+  "plugins": {
+    "hawkscan": "plugins/hawkscan",
+    "stackhawk-api": "plugins/api",
+    "hawkscan-ci": "plugins/hawkscan-ci",
+    "stackhawk-data-seed": "plugins/stackhawk-data-seed",
+    "wingman": "plugins/wingman",
+    "stackhawk-optimize": "plugins/optimize"
+  }
+}

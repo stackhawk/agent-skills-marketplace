@@ -4,13 +4,13 @@
 
 Plugin marketplace catalog for [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills).
 
-This is an open-source, publicly installable catalog. It holds the catalogs that control which version of `agent-skills` marketplace consumers install — each plugin pinned to a tested GA release (`ref` + `sha`) — plus a vendored copy of the released skills (`skills/`) for tools that install from `SKILL.md` files directly. Bumping the pin here rolls out updates on StackHawk's release cadence, independently of the plugin development cadence.
+This is a public catalog pinned to a tested `agent-skills` release. Claude installs the plugin snapshots in `plugins/` through local `./plugins/<name>` sources. Codex and GitHub Copilot CLI use catalogs whose remote sources pin the same tag and commit. The standalone `skills/` copies serve tools that install directly from `SKILL.md`. Updating this repo rolls out a GA release independently of development in `agent-skills`.
 
 The catalog publishes six plugins: **`hawkscan`** (DAST scanning), **`stackhawk-api`** (StackHawk platform API), **`hawkscan-ci`** (CI integration), **`stackhawk-data-seed`** (seed data for authenticated scans), **`stackhawk-optimize`** (scan tuning), and **`wingman`** (umbrella: installs the default skill set).
 
 ## Install
 
-The marketplace serves the agents whose plugin systems can pin a remote source. Pick yours:
+The marketplace serves several agents. Pick yours:
 
 ### Claude Code
 
@@ -19,6 +19,12 @@ The marketplace serves the agents whose plugin systems can pin a remote source. 
 /plugin install hawkscan@stackhawk
 /plugin install stackhawk-api@stackhawk
 ```
+
+### Anthropic directory submissions
+
+Use this repository as the source when submitting the marketplace directory in the [developer portal](https://claude.ai/directory/manage). Its [Claude catalog](.claude-plugin/marketplace.json) points at six plugin folders inside the same repository, as the directory requires. Run `claude plugin validate --strict .` and validate every `plugins/<name>` folder locally, then use the portal's **Validate** action on the commit you intend to submit. The [portal checklist](https://claude.com/docs/plugins/pre-submission-checklist) checks more than the CLI, including each plugin's README. Validate again after changing the tracked commit. Submission and publication are separate actions.
+
+Wingman is an umbrella plugin. It has no direct skill; its `dependencies` field installs `hawkscan`, `stackhawk-api`, `stackhawk-data-seed`, and `stackhawk-optimize` from this marketplace in Claude Code. The directory may describe Wingman as having no components, so review its listing text before publishing.
 
 ### Codex
 
@@ -44,37 +50,62 @@ The [`skills` CLI](https://github.com/vercel-labs/skills) discovers `SKILL.md` f
 npx skills add stackhawk/agent-skills-marketplace --all
 ```
 
-Add `-g` for a user-level install. This installs five skills: `hawkscan`, `stackhawk-api`, `hawkscan-ci`, `stackhawk-data-seed`, and `stackhawk-optimize`. To move to the next GA release, run `npx skills update` — the CLI re-fetches the default branch and compares folder hashes.
+Add `-g` for a user-level install. This installs five skills: `hawkscan`, `stackhawk-api`, `hawkscan-ci`, `stackhawk-data-seed`, and `stackhawk-optimize`. To move to the next GA release, run `npx skills update`. The CLI re-fetches the default branch and compares folder hashes.
 
 This path installs skills only (`SKILL.md` + `references/`), not plugin hooks. For the full plugin with hooks, use the per-agent plugin commands above; each also has a scriptable CLI form (`claude plugin install wingman@stackhawk`, `codex plugin add hawkscan@stackhawk`, `copilot plugin install wingman@stackhawk`) after the matching `marketplace add`.
 
-> **Cursor** and **Antigravity (`agy`)** don't consume this marketplace — they install directly from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills) (Cursor copies the generated `.mdc` rules; `agy plugin install <agent-skills repo URL>`). See the agent-skills README for their steps.
+> **Cursor** and **Antigravity (`agy`)** don't consume this marketplace. They install directly from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills) (Cursor copies the generated `.mdc` rules; `agy plugin install <agent-skills repo URL>`). See the agent-skills README for their steps.
 
 ## Structure
 
 ```
-.claude-plugin/marketplace.json   # Claude Code + GitHub Copilot CLI — github source + path
-.agents/plugins/marketplace.json  # Codex — git-subdir source
-.codex-plugin/marketplace.json    # legacy Codex path (back-compat)
-skills/<name>/                    # vendored GA skills for the `skills` CLI — generated, do not edit
+.claude-plugin/marketplace.json   # Claude Code - local plugin paths
+.agents/plugins/marketplace.json  # Codex - pinned git-subdir sources
+.codex-plugin/marketplace.json    # legacy Codex path
+.github/plugin/marketplace.json   # GitHub Copilot CLI - pinned github sources
+plugins/<name>/                  # released Claude plugin snapshots
+skills/<name>/                   # standalone skills for the skills CLI
+sources.json                     # source tag, SHA, and plugin path mapping
+scripts/sync-agent-skills.py     # repeatable release sync
+overrides/<name>/README.md       # README fallbacks for older source tags
 ```
 
-Every plugin entry points at `stackhawk/agent-skills` at a subdirectory (`plugins/<name>`), pinned to a release `ref` + `sha`. The per-tool source schema differs (Claude/Copilot use a `github` source; Codex uses `git-subdir`), which is why there is more than one catalog.
+The Claude catalog uses local paths so the directory can inspect each plugin. The other catalogs retain their tool-specific remote source schemas. `sources.json` records the exact upstream commit for all copied files.
 
 ## Updating the pinned version
 
-**These catalogs are generated, not hand-edited.** When `agent-skills` cuts a release, its `release.yml` runs `scripts/generate-marketplace-catalogs.py` and pushes the regenerated catalogs here automatically — pinning every plugin to the new tag + SHA in each tool's schema. The same release run also regenerates `skills/` (via `scripts/generate-marketplace-skills.py`) from the released skill directories. To roll a new version out to consumers, **release `agent-skills`**; don't edit `marketplace.json` or `skills/` by hand (a release will overwrite them).
+**The catalogs, plugin snapshots, and standalone skills are generated.** Do not edit the generated output by hand.
+
+The `agent-skills` release workflow does the sync. It does not write the external-source Claude catalog. For each release tag, it runs `scripts/sync-agent-skills.py` from this repository and runs the tests. Then it opens a sync pull request here for review. Merge that pull request to publish the release.
+
+Merge this repository's local-path layout before the next `agent-skills` release is dispatched. The release workflow needs `scripts/sync-agent-skills.py` in this repository.
+
+To sync by hand, use a local `agent-skills` checkout that contains the release tag:
+
+```bash
+python3 scripts/sync-agent-skills.py --source-repo /path/to/agent-skills --tag vX.Y.Z
+python3 -m unittest discover -s tests
+```
+
+To preview the directory checks locally, run the Claude validator on the catalog and on each plugin:
+
+```bash
+claude plugin validate --strict .
+for plugin in plugins/*; do claude plugin validate --strict "$plugin"; done
+```
+
+The script verifies the tag against `VERSION`, records its SHA in `sources.json`, and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
 
 ## Why a separate repo
 
 - `agent-skills` iterates continuously; this repo only changes when we deliberately roll a GA version to consumers
-- SHA pinning alongside `ref` guarantees reproducibility even if a tag is moved
+- The recorded SHA and tag movement check make each synced release traceable
 - Public and open source so any supported agent can install StackHawk skills directly
 
 ## Contributing
 
-The catalogs are generated from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills) — to add or change skills, contribute there. The generator and publisher live in that repo (`scripts/generate-marketplace-catalogs.py` and `.github/workflows/release.yml`).
+The source skills and plugin behavior live in [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills). To add or change them, contribute there, then run the sync script here for a released tag. Marketplace-only README fallbacks live in `overrides/`.
 
 ## License
 
-[MIT](LICENSE) — © 2026 StackHawk, Inc.
+[MIT](LICENSE) - © 2026 StackHawk, Inc.

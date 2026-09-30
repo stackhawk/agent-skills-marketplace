@@ -1,0 +1,31 @@
+{
+  "name": "wingman",
+  "version": "2.5.1",
+  "description": "StackHawk umbrella plugin \u2014 installs the default StackHawk skill set (hawkscan, api, data-seed, optimize) in one command for the combined hawk CLI.",
+  "author": {
+    "name": "StackHawk",
+    "email": "support@stackhawk.com",
+    "url": "https://www.stackhawk.com"
+  },
+  "homepage": "https://docs.stackhawk.com",
+  "repository": "https://github.com/stackhawk/agent-skills",
+  "license": "MIT",
+  "keywords": [
+    "security",
+    "appsec",
+    "stackhawk",
+    "hawk",
+    "dast",
+    "umbrella"
+  ],
+  "dependencies": [
+    "hawkscan",
+    "stackhawk-api",
+    "stackhawk-data-seed",
+    "stackhawk-optimize"
+  ],
+  "privacyPolicyUrl": "https://www.stackhawk.com/privacy-policy/",
+  "termsOfServiceUrl": "https://www.stackhawk.com/terms-of-service/",
+  "supportUrl": "https://docs.stackhawk.com/support/",
+  "documentationUrl": "https://docs.stackhawk.com/ai-security/agent-skills/claude-code/"
+}

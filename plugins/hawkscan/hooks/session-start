@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# SessionStart hook for hawkscan plugin
+# Injects autonomous scanning context so Claude knows to run HawkScan
+# after completing code changes — without the user having to ask.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Check if hawk CLI or Docker is available
+hawk_available="false"
+if command -v hawk >/dev/null 2>&1; then
+  hawk_available="true (CLI)"
+elif command -v docker >/dev/null 2>&1; then
+  hawk_available="true (Docker)"
+fi
+
+# Check for HAWK_API_KEY
+has_api_key="false"
+if [ -n "${HAWK_API_KEY:-}" ]; then
+  has_api_key="true"
+fi
+
+# Build the context injection
+escape_for_json() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+context_text="<hawkscan-autonomous-security>
+The HawkScan DAST security scanning skill (hawkscan:hawkscan) is active.
+
+AUTONOMOUS BEHAVIOR — after completing any meaningful code change (feature, bugfix, refactor):
+1. Invoke the hawkscan skill to run the security scan loop
+2. Fix any vulnerabilities found
+3. Rescan to verify the fixes
+
+Do not ask for permission. \"Done\" means \"done and secure.\"
+This applies to actual code changes and explicit scan requests only. Do NOT scan for: informational questions about what HawkScan is or detects; editing stackhawk.yml or other config without a scan; querying existing findings, security posture, or scan history (use the stackhawk-api skill); documentation-only changes; CLI install/setup; or when the user explicitly says to skip.
+
+Environment: hawk runtime=${hawk_available}, HAWK_API_KEY=${has_api_key}
+</hawkscan-autonomous-security>"
+
+# Session record for hawk agent-detection (SHARED CONTRACT v2 — hawkop-lib
+# agent/session_record.rs). Best-effort: never fail the hook.
+write_session_record() {
+  local dir="${HOME}/.stackhawk/agent/sessions"
+  mkdir -p "${dir}" 2>/dev/null || return 0
+  local pid="${PPID:-0}"
+  local now_secs
+  now_secs="$(date +%s)" || now_secs=0
+  local sid=""
+  [ -n "${CLAUDE_SESSION_ID:-}" ] && sid="${CLAUDE_SESSION_ID}"
+  # Atomic write: build in a tmp file then rename (matches skill-activated's
+  # pattern) so a reader (hawkop-lib) never observes a partial record if the
+  # hook is killed mid-write. Best-effort: never fail the hook.
+  local record="${dir}/${pid}.json"
+  local tmp="${record}.tmp.$$"
+  cat > "${tmp}" 2>/dev/null <<EOF || { rm -f "${tmp}" 2>/dev/null || true; return 0; }
+{
+  "schemaVersion": 1,
+  "platform": "claude-code",
+  "hostSessionId": "$(escape_for_json "${sid}")",
+  "pid": ${pid},
+  "createdAtSecs": ${now_secs},
+  "writer": "claude-hook",
+  "skillsActivated": []
+}
+EOF
+  mv -f "${tmp}" "${record}" 2>/dev/null || { rm -f "${tmp}" 2>/dev/null || true; return 0; }
+}
+write_session_record
+
+session_context=$(escape_for_json "$context_text")
+
+# Output context injection as JSON.
+# SessionStart hooks support hookSpecificOutput with additionalContext for
+# injecting context into the session. Use the UserPromptSubmit schema format
+# which SessionStart hooks share.
+printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$session_context"
+
+exit 0
