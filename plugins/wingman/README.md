@@ -1,7 +1,9 @@
 # StackHawk Wingman
 
-Wingman installs the default StackHawk skill set together: HawkScan scanning, StackHawk platform reporting, seed data setup, and scan optimization. Its Claude Code manifest declares those four plugins as dependencies, so one Wingman install brings in the four skills from this marketplace. Wingman intentionally has no skill of its own. Each dependency comes from the same pinned `stackhawk/agent-skills` release.
+Wingman is a convenience plugin for Claude Code users who want the default StackHawk skill set in one install. Its manifest declares dependencies on HawkScan, StackHawk API, StackHawk Data Seed, and StackHawk Optimize. Those plugins handle DAST scanning, security reporting, scan data preparation, and setup trials respectively.
 
-HawkScan actions use the `hawk` CLI and may connect to your StackHawk account. They can scan an application, query findings, or write configuration and seed artifacts in a repository when the relevant skill is invoked. Review each skill's instructions and the [Claude Code installation guide](https://docs.stackhawk.com/ai-security/agent-skills/claude-code/) before use. [StackHawk support](https://docs.stackhawk.com/support/) can help with setup.
+Wingman contains no standalone skill in its own `skills/` directory. Claude Code installs and enables the four dependent plugins when you install `wingman@stackhawk` from the [StackHawk agent skills marketplace](https://github.com/stackhawk/agent-skills). Each dependency has its own requirements and instructions. The plugins use the StackHawk `hawk` CLI and may call StackHawk services or scan a target application when you invoke their skills. Review each plugin's README and skill instructions before use.
 
-The plugin manifest contains the release version and links to StackHawk's privacy policy and terms.
+For Claude chat or Cowork, install the individual skill plugins directly so their skills are available on those surfaces. The dependency bundle is intended for Claude Code. Wingman is released under the MIT license.
+
+Wingman itself does not read or transmit `HAWK_API_KEY`. The dependent skills use the official `hawk` CLI, which authenticates with StackHawk's own platform using a StackHawk-issued key. See the HawkScan and StackHawk API plugin READMEs for their credential handling.
