@@ -58,25 +58,47 @@ class ReleaseLayoutTest(unittest.TestCase):
                     self.assertEqual(len(skills), 1)
                     self.assertTrue((ROOT / "skills" / name / "SKILL.md").is_file())
 
-    def test_remote_catalogs_keep_the_same_release_pin(self):
-        sha = self.sources["sha"]
-        tag = self.sources["tag"]
-        self.assertRegex(sha, r"^[0-9a-f]{40}$")
-        for catalog_path, source_type in (
-            (".agents/plugins/marketplace.json", "git-subdir"),
-            (".codex-plugin/marketplace.json", "git-subdir"),
-            (".github/plugin/marketplace.json", "github"),
+    def test_copilot_and_codex_catalogs_use_this_repository(self):
+        self.assertRegex(self.sources["sha"], r"^[0-9a-f]{40}$")
+        for catalog_path, local in (
+            (".agents/plugins/marketplace.json", True),
+            (".codex-plugin/marketplace.json", True),
+            (".github/plugin/marketplace.json", False),
         ):
             catalog = read_json(catalog_path)
             self.assertEqual(set(self.plugins), {entry["name"] for entry in catalog["plugins"]})
             for entry in catalog["plugins"]:
                 with self.subTest(catalog=catalog_path, plugin=entry["name"]):
-                    source = entry["source"]
+                    name = entry["name"]
+                    folder = "bundles" if name == "wingman" else "plugins"
+                    expected = f"./{folder}/{name}"
+                    source = {"source": "local", "path": expected} if local else expected
+                    self.assertEqual(entry["source"], source)
                     self.assertEqual(entry["version"], self.version)
-                    self.assertEqual(source["source"], source_type)
-                    self.assertEqual(source["ref"], tag)
-                    self.assertEqual(source["sha"], sha)
-                    self.assertEqual(source["path"].removeprefix("./"), self.plugins[entry["name"]])
+                    self.assertTrue((ROOT / expected / ".claude-plugin" / "plugin.json").is_file())
+
+    def test_wingman_bundle_stays_outside_claude_listed_folders(self):
+        claude = read_json(".claude-plugin/marketplace.json")
+        self.assertFalse(any(entry["source"].startswith("./bundles") for entry in claude["plugins"]))
+        self.assertFalse((ROOT / "plugins" / "wingman" / "copilot-skills").exists())
+        self.assertFalse((ROOT / "plugins" / "wingman" / ".github").exists())
+        bundles = [path.name for path in (ROOT / "bundles").iterdir() if not path.name.startswith(".")]
+        self.assertEqual(bundles, ["wingman"])
+
+        bundle = ROOT / "bundles" / "wingman"
+        dependencies = read_json("plugins/wingman/.claude-plugin/plugin.json")["dependencies"]
+        for manifest_path in (".github/plugin/plugin.json", ".codex-plugin/plugin.json"):
+            with self.subTest(manifest=manifest_path):
+                manifest = json.loads((bundle / manifest_path).read_text())
+                self.assertEqual(manifest["name"], "wingman")
+                self.assertEqual(manifest["version"], self.version)
+                self.assertEqual(manifest["skills"], "./copilot-skills/")
+        names = {
+            re.search(r"^name:[ \t]*(\S+)", path.read_text(), re.MULTILINE).group(1)
+            for path in (bundle / "copilot-skills").glob("*/SKILL.md")
+        }
+        self.assertEqual(names, set(dependencies))
+        self.assertEqual(list(bundle.glob("skills/*/SKILL.md")), [])
 
 
 if __name__ == "__main__":

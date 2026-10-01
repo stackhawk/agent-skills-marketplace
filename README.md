@@ -4,7 +4,7 @@
 
 Plugin marketplace catalog for [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills).
 
-This is a public catalog pinned to a tested `agent-skills` release. Claude installs the plugin snapshots in `plugins/` through local `./plugins/<name>` sources. Codex and GitHub Copilot CLI use catalogs whose remote sources pin the same tag and commit. The standalone `skills/` copies serve tools that install directly from `SKILL.md`. Updating this repo rolls out a GA release independently of development in `agent-skills`.
+This is a public catalog pinned to a tested `agent-skills` release. Every catalog installs from this repository through relative sources, so the marketplace commit that you add is the one pin for all agents. Claude, Codex, and GitHub Copilot CLI install the plugin snapshots in `plugins/`. Codex and Copilot install Wingman from `bundles/wingman/`, because they cannot install plugin dependencies. The standalone `skills/` copies serve tools that install directly from `SKILL.md`. Updating this repo rolls out a GA release independently of development in `agent-skills`.
 
 The catalog publishes six plugins: **`hawkscan`** (DAST scanning), **`stackhawk-api`** (StackHawk platform API), **`hawkscan-ci`** (CI integration), **`stackhawk-data-seed`** (seed data for authenticated scans), **`stackhawk-optimize`** (scan tuning), and **`wingman`** (umbrella: installs the default skill set).
 
@@ -22,9 +22,9 @@ The marketplace serves several agents. Pick yours:
 
 ### Anthropic directory submissions
 
-Use this repository as the source when submitting the marketplace directory in the [developer portal](https://claude.ai/directory/manage). Its [Claude catalog](.claude-plugin/marketplace.json) points at six plugin folders inside the same repository, as the directory requires. Run `claude plugin validate --strict .` and validate every `plugins/<name>` folder locally, then use the portal's **Validate** action on the commit you intend to submit. The [portal checklist](https://claude.com/docs/plugins/pre-submission-checklist) checks more than the CLI, including each plugin's README. Validate again after changing the tracked commit. Submission and publication are separate actions.
+Use this repository as the source when submitting the marketplace directory in the [developer portal](https://claude.ai/directory/manage). Its [Claude catalog](.claude-plugin/marketplace.json) points at six plugin folders inside the same repository, as the directory requires. It does not list `bundles/`. Run `claude plugin validate --strict .` and validate every `plugins/<name>` folder locally, then use the portal's **Validate** action on the commit you intend to submit. The [portal checklist](https://claude.com/docs/plugins/pre-submission-checklist) checks more than the CLI, including each plugin's README. Validate again after changing the tracked commit. Submission and publication are separate actions.
 
-Wingman is an umbrella plugin. It has no direct skill; its `dependencies` field installs `hawkscan`, `stackhawk-api`, `stackhawk-data-seed`, and `stackhawk-optimize` from this marketplace in Claude Code. The directory may describe Wingman as having no components, so review its listing text before publishing.
+Wingman is an umbrella plugin. It has no direct skill; its `dependencies` field installs `hawkscan`, `stackhawk-api`, `stackhawk-data-seed`, and `stackhawk-optimize` from this marketplace in Claude Code. Codex and Copilot ignore that field, so their Wingman bundle in `bundles/wingman/` contains copies of those four skills. The directory may describe Wingman as having no components, so review its listing text before publishing.
 
 ### Codex
 
@@ -60,17 +60,18 @@ This path installs skills only (`SKILL.md` + `references/`), not plugin hooks. F
 
 ```
 .claude-plugin/marketplace.json   # Claude Code - local plugin paths
-.agents/plugins/marketplace.json  # Codex - pinned git-subdir sources
+.agents/plugins/marketplace.json  # Codex - local plugin paths
 .codex-plugin/marketplace.json    # legacy Codex path
-.github/plugin/marketplace.json   # GitHub Copilot CLI - pinned github sources
-plugins/<name>/                  # released Claude plugin snapshots
+.github/plugin/marketplace.json   # GitHub Copilot CLI - local plugin paths
+plugins/<name>/                  # released plugin snapshots
+bundles/wingman/                 # Wingman with bundled skills for Codex and Copilot
 skills/<name>/                   # standalone skills for the skills CLI
 sources.json                     # source tag, SHA, and plugin path mapping
 scripts/sync-agent-skills.py     # repeatable release sync
 overrides/<name>/README.md       # README fallbacks for older source tags
 ```
 
-The Claude catalog uses local paths so the directory can inspect each plugin. The other catalogs retain their tool-specific remote source schemas. `sources.json` records the exact upstream commit for all copied files.
+The Claude catalog uses local paths so the directory can inspect each plugin. The Codex and Copilot catalogs use the same local paths in their own source schemas, except for Wingman. `sources.json` records the exact upstream commit for all copied files.
 
 ## Updating the pinned version
 
@@ -94,7 +95,7 @@ claude plugin validate --strict .
 for plugin in plugins/*; do claude plugin validate --strict "$plugin"; done
 ```
 
-The script verifies the tag against `VERSION`, records its SHA in `sources.json`, and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
+The script verifies the tag against `VERSION`, records its SHA in `sources.json`, and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It moves Wingman's bundled skills from `plugins/wingman/` to `bundles/wingman/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
 
 ## Why a separate repo
 
