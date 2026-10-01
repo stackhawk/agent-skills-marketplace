@@ -17,13 +17,14 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES_FILE = ROOT / "sources.json"
 GIT_REPO = "stackhawk/agent-skills"
-GIT_URL = f"https://github.com/{GIT_REPO}.git"
 URL_FIELDS = {
     "privacyPolicyUrl": "https://www.stackhawk.com/privacy-policy/",
     "termsOfServiceUrl": "https://www.stackhawk.com/terms-of-service/",
     "supportUrl": "https://docs.stackhawk.com/support/",
     "documentationUrl": "https://docs.stackhawk.com/ai-security/agent-skills/claude-code/",
 }
+BUNDLE_NAME = "wingman"
+BUNDLE_SKILLS = "./copilot-skills/"
 SKILLS_README = """# GENERATED - do not edit
 
 Produced by `scripts/sync-agent-skills.py` from the pinned `agent-skills` tag.
@@ -116,6 +117,45 @@ def prepare_plugins(stage, archive_root, plugins, version):
         readme.write_text(text)
         if len(re.findall(r"\b[\w-]+\b", readme.read_text())) < 40:
             raise ValueError(f"{name} README.md has fewer than 40 words")
+        if name == BUNDLE_NAME:
+            split_bundle(stage, destination, manifest["dependencies"])
+
+
+def split_bundle(stage, snapshot, dependencies):
+    """Move wingman's bundled skills out of the folders the Claude catalog lists.
+
+    Copilot and Codex have no plugin dependencies, so they install the bundle
+    with copies of the dependency skills. Claude installs the dependencies, and
+    the directory reviews every folder its catalog lists, so its snapshot keeps
+    only the manifests and README. The upstream README describes the Claude
+    install, so the bundle gets its own README from overrides/.
+    """
+    bundle = stage / "bundles" / BUNDLE_NAME
+    shutil.copytree(snapshot, bundle)
+    bundle_readme = ROOT / "overrides" / f"{BUNDLE_NAME}-bundle" / "README.md"
+    if not bundle_readme.is_file():
+        raise ValueError(f"{BUNDLE_NAME} bundle needs {bundle_readme.relative_to(ROOT)}")
+    shutil.copyfile(bundle_readme, bundle / "README.md")
+    copilot_manifest = json.loads((bundle / ".github" / "plugin" / "plugin.json").read_text())
+    if copilot_manifest.get("skills") != BUNDLE_SKILLS:
+        raise ValueError(f"{BUNDLE_NAME} Copilot manifest must load {BUNDLE_SKILLS}")
+    # Codex ignores dependencies too. Remove this when stackhawk/agent-skills
+    # scripts/generate-wingman-skills.sh writes the key in a released tag.
+    codex_path = bundle / ".codex-plugin" / "plugin.json"
+    codex_manifest = json.loads(codex_path.read_text())
+    if codex_manifest.setdefault("skills", BUNDLE_SKILLS) != BUNDLE_SKILLS:
+        raise ValueError(f"{BUNDLE_NAME} Codex manifest must load {BUNDLE_SKILLS}")
+    write_json(codex_path, codex_manifest)
+    bundled = set()
+    for skill_file in (bundle / BUNDLE_SKILLS).glob("*/SKILL.md"):
+        match = re.search(r"^name:[ \t]*(\S+)", skill_file.read_text(), flags=re.MULTILINE)
+        if not match:
+            raise ValueError(f"{skill_file} has no frontmatter name")
+        bundled.add(match.group(1))
+    if bundled != set(dependencies):
+        raise ValueError(f"{BUNDLE_NAME} bundles {sorted(bundled)}, expected {sorted(dependencies)}")
+    shutil.rmtree(snapshot / BUNDLE_SKILLS)
+    shutil.rmtree(snapshot / ".github")
 
 
 def prepare_standalone_skills(stage, plugins):
@@ -166,21 +206,17 @@ def prepare_catalogs(stage, repo, sha, tag, plugins):
         entry["version"] = version
         claude["plugins"].append(entry)
 
+        # The marketplace commit that a user clones pins every relative source.
+        local_path = f"./bundles/{name}" if name == BUNDLE_NAME else f"./plugins/{name}"
         copilot_entry = copy.deepcopy(original)
-        copilot_entry["source"] = {
-            "source": "github", "repo": GIT_REPO, "path": upstream_path,
-            "ref": tag, "sha": sha,
-        }
+        copilot_entry["source"] = local_path
         copilot_entry["version"] = version
         copilot["plugins"].append(copilot_entry)
 
         codex_original = codex_entries[name]
         checked_source_path(codex_original, upstream_path)
         codex_entry = copy.deepcopy(codex_original)
-        codex_entry["source"] = {
-            "source": "git-subdir", "url": GIT_URL, "path": f"./{upstream_path}",
-            "ref": tag, "sha": sha,
-        }
+        codex_entry["source"] = {"source": "local", "path": local_path}
         codex_entry["version"] = version
         codex_entry.setdefault("description", original.get("description"))
         codex_entry.setdefault("homepage", original.get("homepage"))
@@ -194,7 +230,7 @@ def prepare_catalogs(stage, repo, sha, tag, plugins):
 
 def install(stage):
     paths = [
-        Path("plugins"), Path("skills"), Path("sources.json"),
+        Path("plugins"), Path("bundles"), Path("skills"), Path("sources.json"),
         Path(".claude-plugin/marketplace.json"),
         Path(".github/plugin/marketplace.json"),
         Path(".agents/plugins/marketplace.json"),

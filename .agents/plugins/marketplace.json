@@ -8,11 +8,8 @@
     {
       "name": "hawkscan",
       "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "./plugins/hawkscan",
-        "ref": "v2.6.2",
-        "sha": "83b14cd1bfecc30f9e4f37bbaa7eafd2cf3faad7"
+        "source": "local",
+        "path": "./plugins/hawkscan"
       },
       "policy": {
         "installation": "AVAILABLE"
@@ -25,11 +22,8 @@
     {
       "name": "stackhawk-api",
       "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "./plugins/api",
-        "ref": "v2.6.2",
-        "sha": "83b14cd1bfecc30f9e4f37bbaa7eafd2cf3faad7"
+        "source": "local",
+        "path": "./plugins/stackhawk-api"
       },
       "policy": {
         "installation": "AVAILABLE"
@@ -42,11 +36,8 @@
     {
       "name": "hawkscan-ci",
       "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "./plugins/hawkscan-ci",
-        "ref": "v2.6.2",
-        "sha": "83b14cd1bfecc30f9e4f37bbaa7eafd2cf3faad7"
+        "source": "local",
+        "path": "./plugins/hawkscan-ci"
       },
       "policy": {
         "installation": "AVAILABLE"
@@ -59,11 +50,8 @@
     {
       "name": "stackhawk-data-seed",
       "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "./plugins/stackhawk-data-seed",
-        "ref": "v2.6.2",
-        "sha": "83b14cd1bfecc30f9e4f37bbaa7eafd2cf3faad7"
+        "source": "local",
+        "path": "./plugins/stackhawk-data-seed"
       },
       "policy": {
         "installation": "AVAILABLE"
@@ -76,11 +64,8 @@
     {
       "name": "wingman",
       "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "./plugins/wingman",
-        "ref": "v2.6.2",
-        "sha": "83b14cd1bfecc30f9e4f37bbaa7eafd2cf3faad7"
+        "source": "local",
+        "path": "./bundles/wingman"
       },
       "policy": {
         "installation": "AVAILABLE"
@@ -93,11 +78,8 @@
     {
       "name": "stackhawk-optimize",
       "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/stackhawk/agent-skills.git",
-        "path": "./plugins/optimize",
-        "ref": "v2.6.2",
-        "sha": "83b14cd1bfecc30f9e4f37bbaa7eafd2cf3faad7"
+        "source": "local",
+        "path": "./plugins/stackhawk-optimize"
       },
       "policy": {
         "installation": "AVAILABLE"
