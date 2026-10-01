@@ -127,10 +127,15 @@ def split_bundle(stage, snapshot, dependencies):
     Copilot and Codex have no plugin dependencies, so they install the bundle
     with copies of the dependency skills. Claude installs the dependencies, and
     the directory reviews every folder its catalog lists, so its snapshot keeps
-    only the manifests and README.
+    only the manifests and README. The upstream README describes the Claude
+    install, so the bundle gets its own README from overrides/.
     """
     bundle = stage / "bundles" / BUNDLE_NAME
     shutil.copytree(snapshot, bundle)
+    bundle_readme = ROOT / "overrides" / f"{BUNDLE_NAME}-bundle" / "README.md"
+    if not bundle_readme.is_file():
+        raise ValueError(f"{BUNDLE_NAME} bundle needs {bundle_readme.relative_to(ROOT)}")
+    shutil.copyfile(bundle_readme, bundle / "README.md")
     copilot_manifest = json.loads((bundle / ".github" / "plugin" / "plugin.json").read_text())
     if copilot_manifest.get("skills") != BUNDLE_SKILLS:
         raise ValueError(f"{BUNDLE_NAME} Copilot manifest must load {BUNDLE_SKILLS}")

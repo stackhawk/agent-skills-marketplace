@@ -69,6 +69,7 @@ skills/<name>/                   # standalone skills for the skills CLI
 sources.json                     # source tag, SHA, and plugin path mapping
 scripts/sync-agent-skills.py     # repeatable release sync
 overrides/<name>/README.md       # README fallbacks for older source tags
+overrides/wingman-bundle/README.md # README for the Codex and Copilot Wingman bundle
 ```
 
 The Claude catalog uses local paths so the directory can inspect each plugin. The Codex and Copilot catalogs use the same local paths in their own source schemas, except for Wingman. `sources.json` records the exact upstream commit for all copied files.
@@ -95,7 +96,7 @@ claude plugin validate --strict .
 for plugin in plugins/*; do claude plugin validate --strict "$plugin"; done
 ```
 
-The script verifies the tag against `VERSION`, records its SHA in `sources.json`, and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It moves Wingman's bundled skills from `plugins/wingman/` to `bundles/wingman/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
+The script verifies the tag against `VERSION`, records its SHA in `sources.json`, and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It moves Wingman's bundled skills from `plugins/wingman/` to `bundles/wingman/`, and writes the bundle README from `overrides/wingman-bundle/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
 
 ## Why a separate repo
 

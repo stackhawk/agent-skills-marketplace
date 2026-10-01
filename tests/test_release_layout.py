@@ -100,6 +100,16 @@ class ReleaseLayoutTest(unittest.TestCase):
         self.assertEqual(names, set(dependencies))
         self.assertEqual(list(bundle.glob("skills/*/SKILL.md")), [])
 
+    def test_wingman_bundle_readme_describes_bundled_skills(self):
+        bundle_readme = (ROOT / "bundles" / "wingman" / "README.md").read_text()
+        override = (ROOT / "overrides" / "wingman-bundle" / "README.md").read_text()
+        self.assertEqual(bundle_readme, override)
+        self.assertNotEqual(bundle_readme, (ROOT / "plugins" / "wingman" / "README.md").read_text())
+        self.assertIn("copilot-skills/", bundle_readme)
+        dependencies = read_json("plugins/wingman/.claude-plugin/plugin.json")["dependencies"]
+        for name in dependencies:
+            self.assertIn(f"`{name}`", bundle_readme)
+
 
 if __name__ == "__main__":
     unittest.main()
