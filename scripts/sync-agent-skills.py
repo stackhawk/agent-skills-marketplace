@@ -78,16 +78,45 @@ def checked_source_path(entry, expected):
         raise ValueError(f"{entry['name']} source is {actual}, expected {expected}")
 
 
+def stamp_versions(plugin, version):
+    """Write the release-tag version into every file the plugin carries one in.
+
+    Tagged commits may hold a placeholder or the real number; either way the
+    tag is the source of truth.
+    """
+    for manifest_path in (
+        plugin / ".claude-plugin" / "plugin.json",
+        plugin / ".codex-plugin" / "plugin.json",
+        plugin / ".github" / "plugin" / "plugin.json",
+    ):
+        if manifest_path.is_file():
+            manifest = json.loads(manifest_path.read_text())
+            manifest["version"] = version
+            write_json(manifest_path, manifest)
+    # Covers plugin skills and, for wingman, the copilot-skills copies.
+    for skill_file in plugin.glob("**/SKILL.md"):
+        text = skill_file.read_text()
+        frontmatter = re.match(r"---\n.*?\n---\n", text, flags=re.DOTALL)
+        if not frontmatter:
+            continue
+        head, count = re.subn(
+            r"^version:[ \t]*.*$", f"version: {version}", frontmatter.group(0),
+            count=1, flags=re.MULTILINE,
+        )
+        if count:
+            skill_file.write_text(head + text[frontmatter.end():])
+
+
 def prepare_plugins(stage, archive_root, plugins, version):
     for name, upstream_path in plugins.items():
         destination = stage / "plugins" / name
         shutil.copytree(archive_root / upstream_path, destination)
         manifest_path = destination / ".claude-plugin" / "plugin.json"
         manifest = json.loads(manifest_path.read_text())
-        if manifest.get("name") != name or manifest.get("version") != version:
-            raise ValueError(
-                f"{upstream_path} manifest name or version differs from {name} {version}"
-            )
+        if manifest.get("name") != name:
+            raise ValueError(f"{upstream_path} manifest name differs from {name}")
+        stamp_versions(destination, version)
+        manifest["version"] = version
         if name == "wingman":
             dependencies = manifest.get("dependencies", [])
             if not dependencies or any(dependency not in plugins for dependency in dependencies):
@@ -286,9 +315,6 @@ def main():
     sha = git(args.source_repo, "rev-parse", f"{args.tag}^{{commit}}").decode().strip()
     if source.get("tag") == args.tag and source.get("sha") != sha:
         raise ValueError(f"Tag {args.tag} moved from recorded SHA {source['sha']} to {sha}")
-    source_version = git(args.source_repo, "show", f"{sha}:VERSION").decode().strip()
-    if source_version != version:
-        raise ValueError(f"Tag {args.tag} has VERSION={source_version}, expected {version}")
 
     with tempfile.TemporaryDirectory(prefix=".sync-stage-", dir=ROOT) as stage_name:
         stage = Path(stage_name)

@@ -96,7 +96,7 @@ claude plugin validate --strict .
 for plugin in plugins/*; do claude plugin validate --strict "$plugin"; done
 ```
 
-The script verifies the tag against `VERSION`, records its SHA in `sources.json`, and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It moves Wingman's bundled skills from `plugins/wingman/` to `bundles/wingman/`, and writes the bundle README from `overrides/wingman-bundle/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
+The release version comes from `--tag`, not from the tagged tree: the script stamps it into every plugin manifest, each `SKILL.md` `version:` line, and Wingman's Copilot skill copies, so placeholder in-tree versions are fine. It records the tag's SHA in `sources.json` and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It moves Wingman's bundled skills from `plugins/wingman/` to `bundles/wingman/`, and writes the bundle README from `overrides/wingman-bundle/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
 
 ## Why a separate repo
 
