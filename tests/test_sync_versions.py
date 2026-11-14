@@ -1,6 +1,8 @@
 """Check that the sync takes the release version from the tag, not the tree."""
 
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -31,7 +33,9 @@ def skill(name, version):
 
 def build_source(repo, in_tree_version):
     """A minimal agent-skills tree whose in-tree versions are `in_tree_version`."""
-    manifest = lambda name, **extra: {"name": name, "version": in_tree_version, **extra}
+    def manifest(name, **extra):
+        return {"name": name, "version": in_tree_version, **extra}
+
     write(repo / "plugins/hawkscan/.claude-plugin/plugin.json", manifest("hawkscan"))
     write(repo / "plugins/hawkscan/skills/hawkscan/SKILL.md", skill("hawkscan", in_tree_version))
     write(repo / "plugins/hawkscan/README.md", README)
@@ -51,9 +55,11 @@ def build_source(repo, in_tree_version):
     write(repo / ".claude-plugin/marketplace.json", catalog)
     write(repo / ".codex-plugin/marketplace.json", catalog)
     # No VERSION file: the tag is the only place the release number lives.
-    run = lambda *args: subprocess.run(
-        ["git", "-C", str(repo), *args], check=True, capture_output=True
-    )
+    def run(*args):
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], check=True, capture_output=True
+        )
+
     run("init", "-q")
     run("add", "-A")
     run("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "release")
@@ -80,7 +86,8 @@ class SyncVersionTest(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.source), "tag", tag], check=True)
         argv = ["--source-repo", str(self.source), "--tag", tag]
         with mock.patch("sys.argv", ["sync", *argv]):
-            self.sync.main()
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.sync.main()
 
     def versions(self):
         found = {}
@@ -128,7 +135,8 @@ class SyncVersionTest(unittest.TestCase):
                 "sys.argv",
                 ["sync", "--source-repo", str(self.source), "--tag", "v3.4.5"],
             ):
-                self.sync.main()
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.sync.main()
 
 
 if __name__ == "__main__":

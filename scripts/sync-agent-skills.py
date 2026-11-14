@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
-"""Regenerate the marketplace from a tagged local agent-skills checkout."""
+"""Regenerate the marketplace from a tagged local agent-skills checkout.
+
+With --export, the sync publishes the payload that agent-skills scripts/export-marketplace.py
+wrote for the tag: the Claude plugin snapshots, the Wingman bundle, the Cursor catalog and the
+installers. It checks the payload against its manifest before it reads it. Without --export,
+it copies the plugin folders of the tag; that path is for tags older than the export, and it
+refuses a tag that carries the Cursor adapter.
+"""
 
 import argparse
 import copy
+import hashlib
 import io
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -25,6 +34,31 @@ URL_FIELDS = {
 }
 BUNDLE_NAME = "wingman"
 BUNDLE_SKILLS = "./copilot-skills/"
+# The parts of wingman that only its bundle carries. Claude Code installs the dependencies of
+# wingman, and the Cursor app imports Claude Code plugins by default (inferred from its 3.9.16
+# code), so these parts in the Claude snapshot would load the dependency skills, the router rule
+# or the stop hook a second time.
+BUNDLE_ONLY = ("copilot-skills", ".github", ".cursor-plugin", "rules", "hooks/cursor")
+EXPORT_MANIFEST = "export-manifest.json"
+EXPORT_FORMAT = 1
+EXPORT_MODES = {"100644", "100755"}
+CURSOR_CATALOG = Path(".cursor-plugin/marketplace.json")
+CURSOR_MANIFEST = Path(".cursor-plugin/plugin.json")
+CURSOR_ROOT = "${CURSOR_PLUGIN_ROOT}/"
+INSTALLERS = Path("install")
+INSTALLER_FILES = ("install.sh", "install.ps1", "cursor-legacy-rules.txt")
+ROUTER_SKILL = "hawkscan"
+RULE_SUFFIXES = (".mdc", ".md", ".markdown")
+NOT_ALWAYS_APPLIED = {"", "false", "no", "off", "0"}
+# Every path the sync writes; install() replaces each one. agent-skills
+# scripts/ci/stage-marketplace-sync.sh stages exactly these paths and fails on any other change,
+# so its PUBLISHED list must stay equal to this one.
+PUBLISHED = (
+    Path("plugins"), Path("bundles"), Path("skills"), INSTALLERS, Path("sources.json"),
+    Path(".claude-plugin/marketplace.json"), Path(".github/plugin/marketplace.json"),
+    Path(".agents/plugins/marketplace.json"), Path(".codex-plugin/marketplace.json"),
+    CURSOR_CATALOG,
+)
 SKILLS_README = """# GENERATED - do not edit
 
 Produced by `scripts/sync-agent-skills.py` from the pinned `agent-skills` tag.
@@ -50,6 +84,11 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
+def cursor_folder(name):
+    """The folder Cursor installs a catalog plugin from: wingman from its bundle."""
+    return f"bundles/{name}" if name == BUNDLE_NAME else f"plugins/{name}"
+
+
 def extract_plugins(repo, sha, paths, destination):
     archive = git(repo, "archive", sha, *paths)
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
@@ -71,6 +110,302 @@ def extract_plugins(repo, sha, paths, destination):
                 raise ValueError(f"Unsupported archive entry: {member.name}")
 
 
+def refuse_cursor_adapter(archive_root, plugins):
+    """Without --export, take only a tag older than the Cursor adapter.
+
+    That path copies the tag's plugin folders as they are: the Claude wingman would carry the
+    router rule and the stop hook, which Cursor loads a second time when it imports Claude Code
+    plugins, and no Cursor catalog or installer would ship.
+    """
+    for name, upstream_path in plugins.items():
+        parts = [CURSOR_MANIFEST.as_posix()]
+        if name == BUNDLE_NAME:
+            parts += ["rules", "hooks/cursor"]
+        found = [part for part in parts if (archive_root / upstream_path / part).exists()]
+        if found:
+            raise ValueError(
+                f"{name}: the tag carries Cursor files ({', '.join(found)}); "
+                "sync it with --export and the agent-skills export of the tag"
+            )
+
+
+# --- The agent-skills export ---
+
+def read_export_manifest(export):
+    path = export / EXPORT_MANIFEST
+    try:
+        manifest = json.loads(path.read_text())
+    except (OSError, ValueError) as problem:
+        raise ValueError(f"cannot read the export manifest {path}: {problem}") from problem
+    if not isinstance(manifest, dict):
+        raise ValueError(f"{path} is not a JSON object")
+    return manifest
+
+
+def export_path_allowed(path, exported):
+    """True for a path inside the export layout: plugins/<exported name>/, bundles/wingman/,
+    the Cursor catalog and the three installer files."""
+    parts = path.split("/")
+    if "\\" in path or any(part in ("", ".", "..") for part in parts):
+        return False
+    if path == CURSOR_CATALOG.as_posix():
+        return True
+    if parts[0] == INSTALLERS.as_posix():
+        return len(parts) == 2 and parts[1] in INSTALLER_FILES
+    if parts[0] == "plugins":
+        return len(parts) > 2 and parts[1] in exported
+    if parts[0] == "bundles":
+        return len(parts) > 2 and parts[1] == BUNDLE_NAME
+    return False
+
+
+def required_export_files(plugins):
+    """The files the published layout needs from the export."""
+    required = {CURSOR_CATALOG.as_posix()}
+    required.update(f"{INSTALLERS.as_posix()}/{name}" for name in INSTALLER_FILES)
+    for name in plugins:
+        required.add(f"plugins/{name}/.claude-plugin/plugin.json")
+        required.add(f"{cursor_folder(name)}/{CURSOR_MANIFEST.as_posix()}")
+    if BUNDLE_NAME in plugins:
+        bundle = cursor_folder(BUNDLE_NAME)
+        for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".github/plugin/plugin.json"):
+            required.add(f"{bundle}/{manifest}")
+    return required
+
+
+def listed_export_files(manifest):
+    """path -> (mode, bytes, sha256) of every file the export manifest lists."""
+    listed = {}
+    for item in manifest.get("files") or []:
+        valid = (
+            isinstance(item, dict) and isinstance(item.get("path"), str)
+            and item.get("mode") in EXPORT_MODES and isinstance(item.get("bytes"), int)
+            and re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256")))
+        )
+        if not valid or item["path"] in listed:
+            raise ValueError(f"{EXPORT_MANIFEST} has an invalid or repeated file entry: {item}")
+        listed[item["path"]] = (item["mode"], item["bytes"], item["sha256"])
+    return listed
+
+
+def export_entries(export):
+    """(relative path, is a folder) of every entry under export. Refuses a symlink or a special
+    file (a FIFO would block a read) before anything reads it."""
+    for dirpath, dirnames, filenames in os.walk(export):
+        dirnames.sort()
+        for name in sorted(dirnames + filenames):
+            full = Path(dirpath) / name
+            rel = full.relative_to(export).as_posix()
+            mode = os.lstat(full).st_mode
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"{rel} is a symlink; the export holds regular files only")
+            if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                raise ValueError(f"{rel} is not a regular file; the export holds regular files only")
+            yield rel, stat.S_ISDIR(mode)
+
+
+def copy_export(source, destination):
+    """Copy an export into the stage, so the sync checks and publishes the same bytes."""
+    if not source.is_dir():
+        raise ValueError(f"the export {source} is not a folder")
+    destination.mkdir()
+    for rel, is_folder in list(export_entries(source)):
+        if is_folder:
+            (destination / rel).mkdir()
+        else:
+            shutil.copy2(source / rel, destination / rel)
+
+
+def check_export_files(export, listed):
+    """The export holds exactly the listed files, as regular files with the listed content."""
+    found = {rel for rel, is_folder in export_entries(export) if not is_folder} - {EXPORT_MANIFEST}
+    missing, unlisted = sorted(set(listed) - found), sorted(found - set(listed))
+    if missing or unlisted:
+        raise ValueError(f"the export files differ from its manifest: missing {missing}, not listed {unlisted}")
+    for rel, expected in sorted(listed.items()):
+        full = export / rel
+        data = full.read_bytes()
+        mode = "100755" if full.stat().st_mode & 0o111 else "100644"
+        if (mode, len(data), hashlib.sha256(data).hexdigest()) != expected:
+            raise ValueError(f"{rel} differs from the export manifest")
+
+
+def load_export(export, sha, version, plugins):
+    """Check an agent-skills export (its scripts/export-marketplace.py) before it is used.
+
+    The export is the payload of one agent-skills commit: Claude-oriented plugin snapshots
+    named by catalog name, the Wingman bundle, the Cursor catalog and the installers. It must
+    be of the tag's commit and version, and map every curated plugin to its upstream folder in
+    sources.json. It must hold exactly the files its manifest lists, each with the listed
+    sha256, size and mode, only inside the export layout, and every file the published layout
+    needs. A plugin of the export that sources.json does not curate is not published.
+    """
+    manifest = read_export_manifest(export)
+    if manifest.get("format") != EXPORT_FORMAT:
+        raise ValueError(f"{EXPORT_MANIFEST} has an unknown format {manifest.get('format')!r}")
+    commit = (manifest.get("source") or {}).get("commit")
+    if commit != sha:
+        raise ValueError(f"the export is of {commit}, the tag is {sha}")
+    if manifest.get("version") != version:
+        raise ValueError(f"the export is version {manifest.get('version')}, the tag is {version}")
+    exported = manifest.get("plugins") or {}
+    for name, upstream_path in plugins.items():
+        if exported.get(name) != upstream_path:
+            raise ValueError(f"the export maps {name} to {exported.get(name)}, sources.json to {upstream_path}")
+    if manifest.get("bundles") != {BUNDLE_NAME: exported.get(BUNDLE_NAME)}:
+        raise ValueError(f"the export bundles {manifest.get('bundles')}, expected only {BUNDLE_NAME}")
+    listed = listed_export_files(manifest)
+    for rel in sorted(listed):
+        if not export_path_allowed(rel, exported):
+            raise ValueError(f"unexpected path in the export: {rel}")
+    for rel in sorted(required_export_files(plugins)):
+        if rel not in listed:
+            raise ValueError(f"the export has no {rel}")
+    check_export_files(export, listed)
+
+
+# --- What Cursor loads ---
+
+def frontmatter_values(text, key):
+    """The values of one key in the frontmatter of a rule or SKILL.md, one per occurrence. A
+    block value (`key: |` or `key:` followed by indented lines) is its lines joined; a list
+    item keeps its leading "- "."""
+    frontmatter = re.match(r"---\r?\n(.*?)\r?\n---", text, flags=re.DOTALL)
+    lines = frontmatter.group(1).splitlines() if frontmatter else []
+    values = []
+    for index, line in enumerate(lines):
+        if not line.startswith(f"{key}:"):
+            continue
+        value = line[len(key) + 1:].split(" #")[0].strip()
+        if value in ("", "|", ">", "|-", ">-", "|+", ">+"):
+            block = []
+            for following in lines[index + 1:]:
+                if not following.startswith((" ", "\t", "-")):
+                    break
+                block.append(following.strip())
+            value = " ".join(block)
+        values.append(value.strip("'\"").strip())
+    return values
+
+
+def always_applied(rule_text):
+    """True when any alwaysApply value of the rule is not clearly false (false, no, off, 0).
+
+    A YAML reader takes True, "true", `true # note` or a list as true, so a second router rule
+    must not pass because of how it is spelled; a repeated key counts as a router when any of
+    its values does. agent-skills scripts/check-marketplace-layout.py counts router rules with
+    the same rule (it reads the last value of a repeated key).
+    """
+    return any(value.lower() not in NOT_ALWAYS_APPLIED for value in frontmatter_values(rule_text, "alwaysApply"))
+
+
+def frontmatter_name(skill_file):
+    names = frontmatter_values(skill_file.read_text(), "name")
+    return names[0] if names and names[0] else None
+
+
+def stop_commands(hooks):
+    """The commands of the stop hooks in a hooks file, in the Cursor and the Claude format."""
+    events = hooks.get("hooks") if isinstance(hooks, dict) else None
+    if not isinstance(events, dict):
+        return []
+    commands = [str(item.get("command", "")) for item in events.get("stop", []) if isinstance(item, dict)]
+    for group in events.get("Stop", []):
+        if isinstance(group, dict):
+            commands += [str(item.get("command", "")) for item in group.get("hooks", []) if isinstance(item, dict)]
+    return commands
+
+
+def cursor_paths(stage, folder, manifest, key, default):
+    """The existing paths of one component of a Cursor manifest. A path the manifest names
+    replaces the default one, and it must exist inside the plugin folder."""
+    root = (stage / folder).resolve()
+    value = manifest.get(key, default)
+    paths = [value] if isinstance(value, str) else value
+    if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+        raise ValueError(f"{folder}/{CURSOR_MANIFEST}: {key} must be a path or a list of paths")
+    found = []
+    for path in paths:
+        full = (root / path).resolve()
+        if full != root and root not in full.parents:
+            raise ValueError(f"{folder}/{CURSOR_MANIFEST}: {key} names {path}, outside the plugin")
+        if full.exists():
+            found.append(full)
+        elif key in manifest:
+            raise ValueError(f"{folder}/{CURSOR_MANIFEST}: {key} names {path}, which does not exist")
+    return found
+
+
+def cursor_install(stage, folder):
+    """The router rules, stop hook commands and skill names Cursor loads from one plugin folder."""
+    root = (stage / folder).resolve()
+    manifest = json.loads((root / CURSOR_MANIFEST).read_text())
+    rules = []
+    for path in cursor_paths(stage, folder, manifest, "rules", "rules"):
+        if path.is_dir():
+            rules += [rule for rule in sorted(path.rglob("*")) if rule.is_file() and rule.suffix in RULE_SUFFIXES]
+        else:
+            rules.append(path)  # a rule file the manifest names counts whatever its suffix
+    routers = [f"{folder}/{rule.relative_to(root).as_posix()}" for rule in rules if always_applied(rule.read_text())]
+    stops = []
+    for path in cursor_paths(stage, folder, manifest, "hooks", "hooks/hooks.json"):
+        stops += stop_commands(json.loads(path.read_text()))
+    skills = set()
+    for path in cursor_paths(stage, folder, manifest, "skills", "skills"):
+        for skill_file in sorted(path.glob("*/SKILL.md")):
+            skills.add(frontmatter_name(skill_file) or skill_file.parent.name)
+    return routers, stops, skills
+
+
+def check_stop_command(stage, folder, label, command):
+    command = command.strip()
+    script = command.split('"')[1] if command.startswith('"') else command.split(" ")[0]
+    if not script.startswith(CURSOR_ROOT):
+        raise ValueError(f"{label}: stop command {command} does not start with {CURSOR_ROOT}; "
+                         "Cursor runs plugin stop hooks from the workspace root")
+    root = (stage / folder).resolve()
+    target = (root / script[len(CURSOR_ROOT):]).resolve()
+    if root not in target.parents or not target.is_file() or not os.access(target, os.X_OK):
+        raise ValueError(f"{label}: stop command names {folder}/{script[len(CURSOR_ROOT):]}, "
+                         "which is missing or not executable")
+
+
+def check_cursor_install(stage, name):
+    """A Cursor install of one catalog plugin loads at most one router rule and one stop hook,
+    and exactly one of each when it carries the hawkscan skill."""
+    folder = cursor_folder(name)
+    routers, stops, skills = cursor_install(stage, folder)
+    label = f"Cursor install of {name}"
+    if len(routers) > 1:
+        raise ValueError(f"{label} loads {len(routers)} router rules ({', '.join(routers)}); "
+                         "Cursor must load at most one always-applied rule")
+    if len(stops) > 1:
+        raise ValueError(f"{label} loads {len(stops)} stop hooks; at most one may run")
+    if ROUTER_SKILL in skills and (len(routers), len(stops)) != (1, 1):
+        raise ValueError(f"{label} carries the {ROUTER_SKILL} skill with {len(routers)} router rules "
+                         f"and {len(stops)} stop hooks; expected one of each")
+    for command in stops:
+        check_stop_command(stage, folder, label, command)
+
+
+def check_claude_umbrella(stage, plugins):
+    """The Claude snapshot of wingman carries no part that only its bundle may carry, and no
+    stop hook: Cursor imports Claude Code plugins next to the hawkscan dependency."""
+    if BUNDLE_NAME not in plugins:
+        return
+    snapshot = stage / "plugins" / BUNDLE_NAME
+    for part in BUNDLE_ONLY:
+        if (snapshot / part).exists():
+            raise ValueError(f"the Claude snapshot of {BUNDLE_NAME} carries {part}; "
+                             f"only bundles/{BUNDLE_NAME} may carry it")
+    hooks = snapshot / "hooks" / "hooks.json"
+    if hooks.is_file() and stop_commands(json.loads(hooks.read_text())):
+        raise ValueError(f"the Claude snapshot of {BUNDLE_NAME} carries a stop hook in hooks/hooks.json; "
+                         "the hawkscan dependency carries the only one")
+
+
+# --- The published layout ---
+
 def checked_source_path(entry, expected):
     source = entry["source"]
     actual = source["path"] if isinstance(source, dict) else source
@@ -88,6 +423,7 @@ def stamp_versions(plugin, version):
         plugin / ".claude-plugin" / "plugin.json",
         plugin / ".codex-plugin" / "plugin.json",
         plugin / ".github" / "plugin" / "plugin.json",
+        plugin / CURSOR_MANIFEST,
     ):
         if manifest_path.is_file():
             manifest = json.loads(manifest_path.read_text())
@@ -107,10 +443,11 @@ def stamp_versions(plugin, version):
             skill_file.write_text(head + text[frontmatter.end():])
 
 
-def prepare_plugins(stage, archive_root, plugins, version):
+def prepare_plugins(stage, sources, plugins, version, bundle_source=None):
+    """Copy each plugin from sources[name]. bundle_source, from an export, is the Wingman bundle."""
     for name, upstream_path in plugins.items():
         destination = stage / "plugins" / name
-        shutil.copytree(archive_root / upstream_path, destination)
+        shutil.copytree(sources[name], destination)
         manifest_path = destination / ".claude-plugin" / "plugin.json"
         manifest = json.loads(manifest_path.read_text())
         if manifest.get("name") != name:
@@ -147,20 +484,30 @@ def prepare_plugins(stage, archive_root, plugins, version):
         if len(re.findall(r"\b[\w-]+\b", readme.read_text())) < 40:
             raise ValueError(f"{name} README.md has fewer than 40 words")
         if name == BUNDLE_NAME:
-            split_bundle(stage, destination, manifest["dependencies"])
+            split_bundle(stage, destination, manifest["dependencies"], version, bundle_source)
 
 
-def split_bundle(stage, snapshot, dependencies):
-    """Move wingman's bundled skills out of the folders the Claude catalog lists.
+def split_bundle(stage, snapshot, dependencies, version, bundle_source=None):
+    """Keep wingman's bundled skills out of the folders the Claude catalog lists.
 
-    Copilot and Codex have no plugin dependencies, so they install the bundle
+    Copilot, Codex and Cursor have no plugin dependencies, so they install the bundle
     with copies of the dependency skills. Claude installs the dependencies, and
     the directory reviews every folder its catalog lists, so its snapshot keeps
     only the manifests and README. The upstream README describes the Claude
     install, so the bundle gets its own README from overrides/.
+
+    Without an export, the bundle is the tag's wingman folder, and the snapshot loses the
+    bundle's skills and Copilot manifest. An agent-skills export already carries the bundle,
+    with the Cursor manifest, rules and stop hook that the Claude snapshot must not carry; the
+    bundle gets the snapshot's Claude manifest.
     """
     bundle = stage / "bundles" / BUNDLE_NAME
-    shutil.copytree(snapshot, bundle)
+    if bundle_source is None:
+        shutil.copytree(snapshot, bundle)
+    else:
+        shutil.copytree(bundle_source, bundle)
+        stamp_versions(bundle, version)
+        shutil.copyfile(snapshot / ".claude-plugin" / "plugin.json", bundle / ".claude-plugin" / "plugin.json")
     bundle_readme = ROOT / "overrides" / f"{BUNDLE_NAME}-bundle" / "README.md"
     if not bundle_readme.is_file():
         raise ValueError(f"{BUNDLE_NAME} bundle needs {bundle_readme.relative_to(ROOT)}")
@@ -177,14 +524,15 @@ def split_bundle(stage, snapshot, dependencies):
     write_json(codex_path, codex_manifest)
     bundled = set()
     for skill_file in (bundle / BUNDLE_SKILLS).glob("*/SKILL.md"):
-        match = re.search(r"^name:[ \t]*(\S+)", skill_file.read_text(), flags=re.MULTILINE)
-        if not match:
+        name = frontmatter_name(skill_file)
+        if not name:
             raise ValueError(f"{skill_file} has no frontmatter name")
-        bundled.add(match.group(1))
+        bundled.add(name)
     if bundled != set(dependencies):
         raise ValueError(f"{BUNDLE_NAME} bundles {sorted(bundled)}, expected {sorted(dependencies)}")
-    shutil.rmtree(snapshot / BUNDLE_SKILLS)
-    shutil.rmtree(snapshot / ".github")
+    if bundle_source is None:
+        shutil.rmtree(snapshot / BUNDLE_SKILLS)
+        shutil.rmtree(snapshot / ".github")
 
 
 def prepare_standalone_skills(stage, plugins):
@@ -257,39 +605,89 @@ def prepare_catalogs(stage, repo, sha, tag, plugins):
     write_json(stage / ".codex-plugin" / "marketplace.json", codex)
 
 
-def install(stage):
-    paths = [
-        Path("plugins"), Path("bundles"), Path("skills"), Path("sources.json"),
-        Path(".claude-plugin/marketplace.json"),
-        Path(".github/plugin/marketplace.json"),
-        Path(".agents/plugins/marketplace.json"),
-        Path(".codex-plugin/marketplace.json"),
-    ]
-    with tempfile.TemporaryDirectory(prefix=".sync-backup-", dir=ROOT) as backup_name:
-        backup = Path(backup_name)
-        touched = []
+def prepare_cursor(stage, export, plugins):
+    """The Cursor catalog of the export for the curated plugins, in sources.json order, and
+    the installers. Each Cursor install must load what check_cursor_install allows."""
+    catalog = json.loads((export / CURSOR_CATALOG).read_text())
+    entries = {}
+    for entry in catalog.get("plugins", []):
+        if entry.get("name") in entries:
+            raise ValueError(f"the Cursor catalog of the export lists {entry.get('name')} twice")
+        entries[entry.get("name")] = entry
+    published = []
+    for name in plugins:
+        if name not in entries:
+            raise ValueError(f"the Cursor catalog of the export has no {name}")
+        expected = f"./{cursor_folder(name)}"
+        if entries[name].get("source") != expected:
+            raise ValueError(f"Cursor catalog source of {name} is {entries[name].get('source')}, expected {expected}")
+        manifest = json.loads((stage / cursor_folder(name) / CURSOR_MANIFEST).read_text())
+        if manifest.get("name") != name:
+            raise ValueError(f"{cursor_folder(name)}/{CURSOR_MANIFEST} names {manifest.get('name')}, expected {name}")
+        check_cursor_install(stage, name)
+        published.append(entries[name])
+    write_json(stage / CURSOR_CATALOG, {**catalog, "plugins": published})
+    (stage / INSTALLERS).mkdir()
+    for name in INSTALLER_FILES:
+        shutil.copy2(export / INSTALLERS / name, stage / INSTALLERS / name)
+
+
+def remove_empty_parents(path):
+    parent = path.parent
+    while parent != ROOT and parent.is_dir() and not any(parent.iterdir()):
+        parent.rmdir()
+        parent = parent.parent
+
+
+def restore(touched, backup):
+    """Put each touched published path back from the backup; return those that did not come back."""
+    failed = []
+    for relative in reversed(touched):
+        target, old = ROOT / relative, backup / relative
         try:
-            for relative in paths:
-                target = ROOT / relative
-                old = backup / relative
-                new = stage / relative
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            elif os.path.lexists(target):
+                target.unlink()
+            if os.path.lexists(old):
                 target.parent.mkdir(parents=True, exist_ok=True)
-                if target.exists():
-                    old.parent.mkdir(parents=True, exist_ok=True)
-                    os.replace(target, old)
-                touched.append(relative)
-                os.replace(new, target)
+                os.replace(old, target)
+            else:
+                remove_empty_parents(target)
         except OSError:
-            for relative in reversed(touched):
-                target = ROOT / relative
-                if target.is_dir():
-                    shutil.rmtree(target)
-                elif target.exists():
-                    target.unlink()
-                old = backup / relative
-                if old.exists():
-                    os.replace(old, target)
-            raise
+            failed.append(relative.as_posix())
+    return failed
+
+
+def install(stage):
+    """Move every published path from the stage into ROOT; remove one the stage lacks.
+
+    A sync without --export writes no Cursor catalog and no installers, so it removes those
+    of an earlier sync rather than leave them for another release. On any error or interrupt,
+    every path goes back as it was. If a path cannot go back, the backup stays in ROOT and the
+    error names it.
+    """
+    backup = Path(tempfile.mkdtemp(prefix=".sync-backup-", dir=ROOT))
+    touched = []
+    try:
+        for relative in PUBLISHED:
+            target, old, new = ROOT / relative, backup / relative, stage / relative
+            if os.path.lexists(target):
+                old.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(target, old)
+            touched.append(relative)
+            if os.path.lexists(new):
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(new, target)
+            else:
+                remove_empty_parents(target)
+    except BaseException as problem:
+        failed = restore(touched, backup)
+        if failed:
+            raise RuntimeError(f"the sync could not restore {', '.join(failed)}; the old files are in {backup}") from problem
+        shutil.rmtree(backup)
+        raise
+    shutil.rmtree(backup)
 
 
 def main():
@@ -299,6 +697,11 @@ def main():
         help="Local agent-skills Git checkout",
     )
     parser.add_argument("--tag", required=True, help="Release tag, for example v2.5.1")
+    parser.add_argument(
+        "--export", type=Path,
+        help="Payload of the tag from agent-skills scripts/export-marketplace.py "
+        "(plugins, the Wingman bundle, the Cursor catalog and installers)",
+    )
     args = parser.parse_args()
     match = re.fullmatch(r"v(\d+\.\d+\.\d+)", args.tag)
     if not match:
@@ -318,19 +721,32 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix=".sync-stage-", dir=ROOT) as stage_name:
         stage = Path(stage_name)
-        archive_root = stage / "upstream"
-        archive_root.mkdir()
-        extract_plugins(args.source_repo, sha, list(plugins.values()), archive_root)
-        prepare_plugins(stage, archive_root, plugins, version)
+        if args.export:
+            export = stage / "export"
+            copy_export(args.export.resolve(), export)
+            load_export(export, sha, version, plugins)
+            sources = {name: export / "plugins" / name for name in plugins}
+            prepare_plugins(stage, sources, plugins, version, export / "bundles" / BUNDLE_NAME)
+        else:
+            archive_root = stage / "upstream"
+            archive_root.mkdir()
+            extract_plugins(args.source_repo, sha, list(plugins.values()), archive_root)
+            refuse_cursor_adapter(archive_root, plugins)
+            sources = {name: archive_root / path for name, path in plugins.items()}
+            prepare_plugins(stage, sources, plugins, version)
+        check_claude_umbrella(stage, plugins)
         prepare_standalone_skills(stage, plugins)
         prepare_catalogs(stage, args.source_repo, sha, args.tag, plugins)
+        if args.export:
+            prepare_cursor(stage, export, plugins)
         source["tag"] = args.tag
         source["sha"] = sha
         write_json(stage / "sources.json", source)
         install(stage)
     skill_count = len(plugins) - int("wingman" in plugins)
+    cursor = ", the Cursor catalog and the installers" if args.export else ""
     print(
-        f"Synced {len(plugins)} plugins and {skill_count} standalone skills "
+        f"Synced {len(plugins)} plugins, {skill_count} standalone skills{cursor} "
         f"from {args.tag} ({sha})"
     )
 

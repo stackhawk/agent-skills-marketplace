@@ -1,1 +1,5 @@
 *.md whitespace=-blank-at-eol
+# Git for Windows checks text out with CRLF by default. Bash then fails on the installer and the
+# Cursor stop hook, and install.sh no longer matches the legacy rule names that it reads.
+*.sh text eol=lf
+install/cursor-legacy-rules.txt text eol=lf
