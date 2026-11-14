@@ -117,10 +117,18 @@ INSTALLERS = ("install.sh", "install.ps1", "cursor-legacy-rules.txt")
 STOP_SCRIPT_ROOT = "${CURSOR_PLUGIN_ROOT}/"
 NOT_ALWAYS_APPLIED = {"", "false", "no", "off", "0"}
 RULE_SUFFIXES = (".mdc", ".md", ".markdown")
+CURSOR_ONLY_ROOT = "cursor-plugins"
+CURSOR_PARTS = (".cursor-plugin", "rules", "hooks/cursor")
 
 
 def cursor_folder(name):
-    return f"bundles/{name}" if name == "wingman" else f"plugins/{name}"
+    """wingman installs from its bundle, a plugin with a Cursor-only folder from that folder,
+    any other plugin from its Claude snapshot."""
+    if name == "wingman":
+        return f"bundles/{name}"
+    if (ROOT / CURSOR_ONLY_ROOT / name).is_dir():
+        return f"{CURSOR_ONLY_ROOT}/{name}"
+    return f"plugins/{name}"
 
 
 def named_paths(folder, manifest, key, default):
@@ -168,7 +176,9 @@ class CursorLayoutTest(unittest.TestCase):
     A tag synced without the export has none of them, so the Cursor checks skip until the
     first export sync. The Claude wingman never carries Cursor files: the Cursor app imports
     Claude Code plugins, and they would load the router rule and the stop hook a second time
-    next to the hawkscan dependency.
+    next to the hawkscan dependency. For the same reason, no Claude snapshot carries a Cursor
+    rule or Cursor hook, and the Claude snapshot of a plugin with a Cursor-only folder carries no
+    Cursor file.
     """
 
     @classmethod
@@ -191,6 +201,17 @@ class CursorLayoutTest(unittest.TestCase):
         events = json.loads(hooks.read_text()).get("hooks", {}) if hooks.is_file() else {}
         self.assertEqual([event for event in events if event.lower() == "stop"], [])
 
+    def test_claude_snapshots_carry_no_cursor_rule_or_hook(self):
+        self.require_cursor()
+        for name in self.plugins:
+            with self.subTest(plugin=name):
+                snapshot = ROOT / "plugins" / name
+                own = cursor_folder(name) == f"plugins/{name}"
+                for part in CURSOR_PARTS[1:] if own else CURSOR_PARTS:
+                    self.assertFalse((snapshot / part).exists(), part)
+                if not own:
+                    self.assertEqual(list(snapshot.rglob("*.mdc")), [])
+
     def test_cursor_outputs_are_all_present_or_all_absent(self):
         outputs = [CURSOR_CATALOG, *(f"install/{name}" for name in INSTALLERS)]
         outputs += [f"{cursor_folder(name)}/.cursor-plugin/plugin.json" for name in self.plugins]
@@ -198,6 +219,7 @@ class CursorLayoutTest(unittest.TestCase):
         self.assertEqual(set(present.values()), {self.cursor}, present)
         if not self.cursor:
             self.assertFalse((ROOT / "install").exists())
+            self.assertFalse((ROOT / CURSOR_ONLY_ROOT).exists())
             self.assertEqual(list(ROOT.glob("*/*/.cursor-plugin")), [])
 
     def test_cursor_catalog_lists_the_released_folders(self):
@@ -227,7 +249,7 @@ class CursorLayoutTest(unittest.TestCase):
 
     def test_hawkscan_and_the_wingman_bundle_load_exactly_one_router_and_one_stop_hook(self):
         self.require_cursor()
-        for folder in ("plugins/hawkscan", "bundles/wingman"):
+        for folder in (cursor_folder("hawkscan"), "bundles/wingman"):
             with self.subTest(folder=folder):
                 routers, stops = cursor_install(folder)
                 self.assertEqual(routers, ["rules/stackhawk.mdc"])

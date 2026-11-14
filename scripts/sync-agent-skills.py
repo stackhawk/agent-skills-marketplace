@@ -2,8 +2,8 @@
 """Regenerate the marketplace from a tagged local agent-skills checkout.
 
 With --export, the sync publishes the payload that agent-skills scripts/export-marketplace.py
-wrote for the tag: the Claude plugin snapshots, the Wingman bundle, the Cursor catalog and the
-installers. It checks the payload against its manifest before it reads it. Without --export,
+wrote for the tag: the Claude plugin snapshots, the Wingman bundle, the Cursor-only plugins, the
+Cursor catalog and the installers. It checks the payload against its manifest before it reads it. Without --export,
 it copies the plugin folders of the tag; that path is for tags older than the export, and it
 refuses a tag that carries the Cursor adapter.
 """
@@ -40,12 +40,21 @@ BUNDLE_SKILLS = "./copilot-skills/"
 # or the stop hook a second time.
 BUNDLE_ONLY = ("copilot-skills", ".github", ".cursor-plugin", "rules", "hooks/cursor")
 EXPORT_MANIFEST = "export-manifest.json"
-EXPORT_FORMAT = 1
+# Format 2 added the Cursor-only plugins (cursor-plugins/<name>) and the "cursor" map, which
+# names the folder that the Cursor catalog installs each plugin from.
+EXPORT_FORMAT = 2
 EXPORT_MODES = {"100644", "100755"}
 CURSOR_CATALOG = Path(".cursor-plugin/marketplace.json")
 CURSOR_MANIFEST = Path(".cursor-plugin/plugin.json")
 CURSOR_ROOT = "${CURSOR_PLUGIN_ROOT}/"
 INSTALLERS = Path("install")
+# A plugin whose Cursor install is not its Claude snapshot: wingman from its bundle, and each
+# plugin of the export that Cursor installs from cursor-plugins/<name>. The Cursor app and the
+# Cursor CLI import Claude Code plugins, so the Claude snapshot of such a plugin carries no
+# Cursor file, and no Claude snapshot carries a Cursor rule or Cursor hook.
+CURSOR_ONLY_ROOT = "cursor-plugins"
+CURSOR_PARTS = (".cursor-plugin", "rules", "hooks/cursor")
+CURSOR_RULES_AND_HOOKS = ("rules", "hooks/cursor")
 INSTALLER_FILES = ("install.sh", "install.ps1", "cursor-legacy-rules.txt")
 ROUTER_SKILL = "hawkscan"
 RULE_SUFFIXES = (".mdc", ".md", ".markdown")
@@ -54,7 +63,7 @@ NOT_ALWAYS_APPLIED = {"", "false", "no", "off", "0"}
 # scripts/ci/stage-marketplace-sync.sh stages exactly these paths and fails on any other change,
 # so its PUBLISHED list must stay equal to this one.
 PUBLISHED = (
-    Path("plugins"), Path("bundles"), Path("skills"), INSTALLERS, Path("sources.json"),
+    Path("plugins"), Path("bundles"), Path(CURSOR_ONLY_ROOT), Path("skills"), INSTALLERS, Path("sources.json"),
     Path(".claude-plugin/marketplace.json"), Path(".github/plugin/marketplace.json"),
     Path(".agents/plugins/marketplace.json"), Path(".codex-plugin/marketplace.json"),
     CURSOR_CATALOG,
@@ -84,9 +93,12 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
-def cursor_folder(name):
-    """The folder Cursor installs a catalog plugin from: wingman from its bundle."""
-    return f"bundles/{name}" if name == BUNDLE_NAME else f"plugins/{name}"
+def cursor_folder_choices(name):
+    """The folders Cursor may install a catalog plugin from: wingman from its bundle, any other
+    plugin from its Claude snapshot or from its Cursor-only folder."""
+    if name == BUNDLE_NAME:
+        return [f"bundles/{name}"]
+    return [f"plugins/{name}", f"{CURSOR_ONLY_ROOT}/{name}"]
 
 
 def extract_plugins(repo, sha, paths, destination):
@@ -142,9 +154,10 @@ def read_export_manifest(export):
     return manifest
 
 
-def export_path_allowed(path, exported):
+def export_path_allowed(path, exported, cursor):
     """True for a path inside the export layout: plugins/<exported name>/, bundles/wingman/,
-    the Cursor catalog and the three installer files."""
+    cursor-plugins/<name>/ of a plugin that the cursor map installs from there, the Cursor
+    catalog and the three installer files."""
     parts = path.split("/")
     if "\\" in path or any(part in ("", ".", "..") for part in parts):
         return False
@@ -156,18 +169,20 @@ def export_path_allowed(path, exported):
         return len(parts) > 2 and parts[1] in exported
     if parts[0] == "bundles":
         return len(parts) > 2 and parts[1] == BUNDLE_NAME
+    if parts[0] == CURSOR_ONLY_ROOT:
+        return len(parts) > 2 and parts[1] in exported and cursor.get(parts[1]) == f"{CURSOR_ONLY_ROOT}/{parts[1]}"
     return False
 
 
-def required_export_files(plugins):
+def required_export_files(plugins, cursor):
     """The files the published layout needs from the export."""
     required = {CURSOR_CATALOG.as_posix()}
     required.update(f"{INSTALLERS.as_posix()}/{name}" for name in INSTALLER_FILES)
     for name in plugins:
         required.add(f"plugins/{name}/.claude-plugin/plugin.json")
-        required.add(f"{cursor_folder(name)}/{CURSOR_MANIFEST.as_posix()}")
+        required.add(f"{cursor[name]}/{CURSOR_MANIFEST.as_posix()}")
     if BUNDLE_NAME in plugins:
-        bundle = cursor_folder(BUNDLE_NAME)
+        bundle = cursor[BUNDLE_NAME]
         for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json", ".github/plugin/plugin.json"):
             required.add(f"{bundle}/{manifest}")
     return required
@@ -234,11 +249,14 @@ def load_export(export, sha, version, plugins):
     """Check an agent-skills export (its scripts/export-marketplace.py) before it is used.
 
     The export is the payload of one agent-skills commit: Claude-oriented plugin snapshots
-    named by catalog name, the Wingman bundle, the Cursor catalog and the installers. It must
-    be of the tag's commit and version, and map every curated plugin to its upstream folder in
-    sources.json. It must hold exactly the files its manifest lists, each with the listed
-    sha256, size and mode, only inside the export layout, and every file the published layout
-    needs. A plugin of the export that sources.json does not curate is not published.
+    named by catalog name, the Wingman bundle, the Cursor-only plugins, the Cursor catalog and
+    the installers. It must be of the tag's commit and version, map every curated plugin to its
+    upstream folder in sources.json, and name the folder Cursor installs it from. It must hold
+    exactly the files its manifest lists, each with the listed sha256, size and mode, only
+    inside the export layout, and every file the published layout needs. A plugin of the export
+    that sources.json does not curate is not published.
+
+    Returns the folder that Cursor installs each curated plugin from.
     """
     manifest = read_export_manifest(export)
     if manifest.get("format") != EXPORT_FORMAT:
@@ -254,14 +272,23 @@ def load_export(export, sha, version, plugins):
             raise ValueError(f"the export maps {name} to {exported.get(name)}, sources.json to {upstream_path}")
     if manifest.get("bundles") != {BUNDLE_NAME: exported.get(BUNDLE_NAME)}:
         raise ValueError(f"the export bundles {manifest.get('bundles')}, expected only {BUNDLE_NAME}")
+    cursor = manifest.get("cursor")
+    if not isinstance(cursor, dict):
+        raise ValueError(f"{EXPORT_MANIFEST} has no cursor map")
+    for name in plugins:
+        if cursor.get(name) not in cursor_folder_choices(name):
+            raise ValueError(f"the export installs {name} in Cursor from {cursor.get(name)}, "
+                             f"expected one of {cursor_folder_choices(name)}")
     listed = listed_export_files(manifest)
     for rel in sorted(listed):
-        if not export_path_allowed(rel, exported):
+        if not export_path_allowed(rel, exported, cursor):
             raise ValueError(f"unexpected path in the export: {rel}")
-    for rel in sorted(required_export_files(plugins)):
+    curated = {name: cursor[name] for name in plugins}
+    for rel in sorted(required_export_files(plugins, curated)):
         if rel not in listed:
             raise ValueError(f"the export has no {rel}")
     check_export_files(export, listed)
+    return curated
 
 
 # --- What Cursor loads ---
@@ -370,10 +397,9 @@ def check_stop_command(stage, folder, label, command):
                          "which is missing or not executable")
 
 
-def check_cursor_install(stage, name):
+def check_cursor_install(stage, name, folder):
     """A Cursor install of one catalog plugin loads at most one router rule and one stop hook,
     and exactly one of each when it carries the hawkscan skill."""
-    folder = cursor_folder(name)
     routers, stops, skills = cursor_install(stage, folder)
     label = f"Cursor install of {name}"
     if len(routers) > 1:
@@ -388,9 +414,24 @@ def check_cursor_install(stage, name):
         check_stop_command(stage, folder, label, command)
 
 
-def check_claude_umbrella(stage, plugins):
-    """The Claude snapshot of wingman carries no part that only its bundle may carry, and no
-    stop hook: Cursor imports Claude Code plugins next to the hawkscan dependency."""
+def check_claude_snapshots(stage, plugins, cursor=None):
+    """Cursor imports Claude Code plugins next to the one native Cursor install, so a Claude
+    snapshot must not bring a second router rule or stop hook.
+
+    The Claude snapshot of wingman carries no part that only its bundle may carry, and no stop
+    hook. With an export (cursor maps each plugin to its Cursor folder), no Claude snapshot
+    carries a Cursor rule or Cursor hook, and the snapshot of a plugin that Cursor installs from
+    another folder carries no Cursor file at all.
+    """
+    for name in cursor or {}:
+        snapshot = stage / "plugins" / name
+        own = cursor[name] == f"plugins/{name}"
+        for part in CURSOR_RULES_AND_HOOKS if own else CURSOR_PARTS:
+            if (snapshot / part).exists():
+                raise ValueError(f"the Claude snapshot of {name} carries {part}; "
+                                 f"Cursor imports Claude Code plugins, so only {cursor[name]} may carry it")
+        if not own and any(snapshot.rglob("*.mdc")):
+            raise ValueError(f"the Claude snapshot of {name} carries a Cursor rule; only {cursor[name]} may carry one")
     if BUNDLE_NAME not in plugins:
         return
     snapshot = stage / "plugins" / BUNDLE_NAME
@@ -605,7 +646,15 @@ def prepare_catalogs(stage, repo, sha, tag, plugins):
     write_json(stage / ".codex-plugin" / "marketplace.json", codex)
 
 
-def prepare_cursor(stage, export, plugins):
+def prepare_cursor_only(stage, export, cursor, version):
+    """Copy each Cursor-only plugin of the export to cursor-plugins/<name> and stamp it."""
+    for name, folder in cursor.items():
+        if folder == f"{CURSOR_ONLY_ROOT}/{name}":
+            shutil.copytree(export / folder, stage / folder)
+            stamp_versions(stage / folder, version)
+
+
+def prepare_cursor(stage, export, plugins, cursor):
     """The Cursor catalog of the export for the curated plugins, in sources.json order, and
     the installers. Each Cursor install must load what check_cursor_install allows."""
     catalog = json.loads((export / CURSOR_CATALOG).read_text())
@@ -618,13 +667,13 @@ def prepare_cursor(stage, export, plugins):
     for name in plugins:
         if name not in entries:
             raise ValueError(f"the Cursor catalog of the export has no {name}")
-        expected = f"./{cursor_folder(name)}"
+        expected = f"./{cursor[name]}"
         if entries[name].get("source") != expected:
             raise ValueError(f"Cursor catalog source of {name} is {entries[name].get('source')}, expected {expected}")
-        manifest = json.loads((stage / cursor_folder(name) / CURSOR_MANIFEST).read_text())
+        manifest = json.loads((stage / cursor[name] / CURSOR_MANIFEST).read_text())
         if manifest.get("name") != name:
-            raise ValueError(f"{cursor_folder(name)}/{CURSOR_MANIFEST} names {manifest.get('name')}, expected {name}")
-        check_cursor_install(stage, name)
+            raise ValueError(f"{cursor[name]}/{CURSOR_MANIFEST} names {manifest.get('name')}, expected {name}")
+        check_cursor_install(stage, name, cursor[name])
         published.append(entries[name])
     write_json(stage / CURSOR_CATALOG, {**catalog, "plugins": published})
     (stage / INSTALLERS).mkdir()
@@ -700,7 +749,7 @@ def main():
     parser.add_argument(
         "--export", type=Path,
         help="Payload of the tag from agent-skills scripts/export-marketplace.py "
-        "(plugins, the Wingman bundle, the Cursor catalog and installers)",
+        "(plugins, the Wingman bundle, the Cursor-only plugins, the Cursor catalog and installers)",
     )
     args = parser.parse_args()
     match = re.fullmatch(r"v(\d+\.\d+\.\d+)", args.tag)
@@ -724,21 +773,23 @@ def main():
         if args.export:
             export = stage / "export"
             copy_export(args.export.resolve(), export)
-            load_export(export, sha, version, plugins)
+            cursor = load_export(export, sha, version, plugins)
             sources = {name: export / "plugins" / name for name in plugins}
             prepare_plugins(stage, sources, plugins, version, export / "bundles" / BUNDLE_NAME)
+            prepare_cursor_only(stage, export, cursor, version)
         else:
+            cursor = None
             archive_root = stage / "upstream"
             archive_root.mkdir()
             extract_plugins(args.source_repo, sha, list(plugins.values()), archive_root)
             refuse_cursor_adapter(archive_root, plugins)
             sources = {name: archive_root / path for name, path in plugins.items()}
             prepare_plugins(stage, sources, plugins, version)
-        check_claude_umbrella(stage, plugins)
+        check_claude_snapshots(stage, plugins, cursor)
         prepare_standalone_skills(stage, plugins)
         prepare_catalogs(stage, args.source_repo, sha, args.tag, plugins)
         if args.export:
-            prepare_cursor(stage, export, plugins)
+            prepare_cursor(stage, export, plugins, cursor)
         source["tag"] = args.tag
         source["sha"] = sha
         write_json(stage / "sources.json", source)

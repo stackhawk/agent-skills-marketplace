@@ -25,6 +25,9 @@ TAG = f"v{VERSION}"
 # Catalog name -> upstream folder. stackhawk-api has another folder name, as in sources.json.
 CURATED = {"hawkscan": "plugins/hawkscan", "stackhawk-api": "plugins/api", "wingman": "plugins/wingman"}
 DEPENDENCIES = ["hawkscan", "stackhawk-api"]
+# Catalog name -> the export folder that the Cursor catalog installs it from (format 2).
+CURSOR = {"hawkscan": "cursor-plugins/hawkscan", "stackhawk-api": "plugins/stackhawk-api",
+          "wingman": "bundles/wingman"}
 ROUTER = "---\ndescription: StackHawk skills router.\nalwaysApply: true\n---\nrouter\n"
 CONFIG_RULE = (
     "---\ndescription: StackHawk guidance for stackhawk.yml.\nglobs:\n"
@@ -33,7 +36,7 @@ CONFIG_RULE = (
 STOP_COMMAND = '"${CURSOR_PLUGIN_ROOT}/hooks/cursor/stop.sh"'
 STOP_HOOKS = {"version": 1, "hooks": {"stop": [{"command": STOP_COMMAND, "loop_limit": 1}]}}
 PUBLISHED = [
-    "plugins", "bundles", "skills", "install", "sources.json",
+    "plugins", "bundles", "cursor-plugins", "skills", "install", "sources.json",
     ".claude-plugin/marketplace.json", ".github/plugin/marketplace.json",
     ".agents/plugins/marketplace.json", ".codex-plugin/marketplace.json",
     ".cursor-plugin/marketplace.json",
@@ -116,13 +119,18 @@ def write_cursor_files(folder, name, skills=None):
 
 
 def build_export(export, sha, extra_plugin=False):
-    """A small export: Claude snapshots, the Wingman bundle, the Cursor catalog, installers."""
+    """A small export: Claude snapshots, the Wingman bundle, the Cursor-only hawkscan, the
+    Cursor catalog, installers."""
     shutil.rmtree(export, ignore_errors=True)
     hawkscan = export / "plugins/hawkscan"
     write(hawkscan / ".claude-plugin/plugin.json", {"name": "hawkscan", "version": VERSION})
     write(hawkscan / "skills/hawkscan/SKILL.md", skill("hawkscan").replace("0.0.0-dev", VERSION))
     write(hawkscan / "README.md", README)
-    write_cursor_files(hawkscan, "hawkscan")
+    # The Claude Code hooks stay in the Claude snapshot: they do nothing when Cursor runs them.
+    write(hawkscan / "hooks/hooks.json", {"hooks": {"Stop": [{"hooks": [{"command": "stop"}]}]}})
+    cursor_hawkscan = export / "cursor-plugins/hawkscan"
+    write(cursor_hawkscan / "skills/hawkscan/SKILL.md", skill("hawkscan").replace("0.0.0-dev", VERSION))
+    write_cursor_files(cursor_hawkscan, "hawkscan")
     api = export / "plugins/stackhawk-api"
     write(api / ".claude-plugin/plugin.json", {"name": "stackhawk-api", "version": VERSION})
     write(api / ".cursor-plugin/plugin.json", {"name": "stackhawk-api", "version": VERSION})
@@ -141,10 +149,7 @@ def build_export(export, sha, extra_plugin=False):
         write(bundle / f"copilot-skills/{name}/SKILL.md", skill(name).replace("0.0.0-dev", VERSION))
     write(bundle / "README.md", README)
     write_cursor_files(bundle, "wingman", skills="./copilot-skills/")
-    entries = [
-        {"name": name, "source": "./bundles/wingman" if name == "wingman" else f"./plugins/{name}"}
-        for name in CURATED
-    ]
+    entries = [{"name": name, "source": f"./{CURSOR[name]}"} for name in CURATED]
     if extra_plugin:
         extra = export / "plugins/extra"
         write(extra / ".claude-plugin/plugin.json", {"name": "extra", "version": VERSION})
@@ -156,10 +161,11 @@ def build_export(export, sha, extra_plugin=False):
     write(export / "install/install.ps1", "Write-Output install\n")
     write(export / "install/cursor-legacy-rules.txt", "# old rules\nstackhawk-old.mdc\n")
     plugins = dict(CURATED, extra="plugins/extra") if extra_plugin else dict(CURATED)
-    write_manifest(export, sha, plugins=plugins)
+    cursor = dict(CURSOR, extra="plugins/extra") if extra_plugin else dict(CURSOR)
+    write_manifest(export, sha, plugins=plugins, cursor=cursor)
 
 
-def write_manifest(export, sha, version=VERSION, plugins=None, bundles=None):
+def write_manifest(export, sha, version=VERSION, plugins=None, bundles=None, cursor=None):
     """Write export-manifest.json for the files the export holds now, as the exporter does."""
     manifest_path = export / "export-manifest.json"
     plugins = plugins or dict(CURATED)
@@ -167,11 +173,12 @@ def write_manifest(export, sha, version=VERSION, plugins=None, bundles=None):
         path for path in export.rglob("*") if path.is_file() and path != manifest_path
     )
     write(manifest_path, {
-        "format": 1,
+        "format": 2,
         "source": {"commit": sha},
         "version": version,
         "plugins": plugins,
         "bundles": bundles or {"wingman": plugins["wingman"]},
+        "cursor": cursor or dict(CURSOR),
         "files": [
             {
                 "path": path.relative_to(export).as_posix(),
@@ -245,16 +252,28 @@ class SyncExportTest(unittest.TestCase):
         self.assertIn("supportUrl", self.read("bundles/wingman/.claude-plugin/plugin.json"))
         self.assertEqual((bundle / "README.md").read_text(), "bundle " + README)
 
+    def test_the_claude_hawkscan_has_no_cursor_files_and_its_cursor_only_folder_has_them(self):
+        self.run_sync()
+        hawkscan = self.root / "plugins/hawkscan"
+        for part in (".cursor-plugin", "rules", "hooks/cursor"):
+            self.assertFalse((hawkscan / part).exists(), part)
+        self.assertTrue((hawkscan / "hooks/hooks.json").is_file())
+        cursor_only = self.root / "cursor-plugins/hawkscan"
+        for part in (".cursor-plugin/plugin.json", "rules/stackhawk.mdc", "rules/stackhawk-config.mdc",
+                     "hooks/cursor/plugin-hooks.json", "skills/hawkscan/SKILL.md"):
+            self.assertTrue((cursor_only / part).is_file(), part)
+        self.assertTrue(os.access(cursor_only / "hooks/cursor/stop.sh", os.X_OK))
+        self.assertIn(f"version: {VERSION}", (cursor_only / "skills/hawkscan/SKILL.md").read_text())
+
     def test_the_cursor_catalog_and_installers_are_published(self):
         self.run_sync()
         catalog = self.read(".cursor-plugin/marketplace.json")
         self.assertEqual(
             [(entry["name"], entry["source"]) for entry in catalog["plugins"]],
-            [("hawkscan", "./plugins/hawkscan"), ("stackhawk-api", "./plugins/stackhawk-api"),
+            [("hawkscan", "./cursor-plugins/hawkscan"), ("stackhawk-api", "./plugins/stackhawk-api"),
              ("wingman", "./bundles/wingman")],
         )
-        for name, folder in (("hawkscan", "plugins/hawkscan"), ("stackhawk-api", "plugins/stackhawk-api"),
-                             ("wingman", "bundles/wingman")):
+        for name, folder in CURSOR.items():
             manifest = self.read(f"{folder}/.cursor-plugin/plugin.json")
             self.assertEqual((manifest["name"], manifest["version"]), (name, VERSION))
         for name in ("install.sh", "install.ps1", "cursor-legacy-rules.txt"):
@@ -264,8 +283,8 @@ class SyncExportTest(unittest.TestCase):
 
     def test_the_cursor_files_are_published_byte_for_byte(self):
         self.run_sync()
-        for path in (".cursor-plugin/marketplace.json", "plugins/hawkscan/rules/stackhawk.mdc",
-                     "plugins/hawkscan/hooks/cursor/stop.sh", "bundles/wingman/rules/stackhawk.mdc",
+        for path in (".cursor-plugin/marketplace.json", "cursor-plugins/hawkscan/rules/stackhawk.mdc",
+                     "cursor-plugins/hawkscan/hooks/cursor/stop.sh", "bundles/wingman/rules/stackhawk.mdc",
                      "bundles/wingman/hooks/cursor/plugin-hooks.json",
                      "bundles/wingman/.cursor-plugin/plugin.json"):
             self.assertEqual((self.root / path).read_bytes(), (self.export / path).read_bytes(), path)
@@ -274,6 +293,7 @@ class SyncExportTest(unittest.TestCase):
         build_export(self.export, self.sha, extra_plugin=True)
         self.run_sync()
         self.assertFalse((self.root / "plugins/extra").exists())
+        self.assertEqual(sorted(path.name for path in (self.root / "cursor-plugins").iterdir()), ["hawkscan"])
         names = [entry["name"] for entry in self.read(".cursor-plugin/marketplace.json")["plugins"]]
         self.assertEqual(names, list(CURATED))
 
@@ -334,8 +354,10 @@ class SyncExportTest(unittest.TestCase):
 
     def test_an_export_of_an_unknown_format_is_refused(self):
         manifest = json.loads((self.export / "export-manifest.json").read_text())
-        write(self.export / "export-manifest.json", dict(manifest, format=2))
-        self.assert_refused("unknown format")
+        for value in (1, 3):
+            with self.subTest(format=value):
+                write(self.export / "export-manifest.json", dict(manifest, format=value))
+                self.assert_refused(f"unknown format {value}")
 
     def test_a_missing_export_manifest_is_refused(self):
         (self.export / "export-manifest.json").unlink()
@@ -346,8 +368,8 @@ class SyncExportTest(unittest.TestCase):
         self.assert_refused("bundles/wingman/rules/stackhawk.mdc differs from the export manifest")
 
     def test_an_export_file_with_another_mode_is_refused(self):
-        (self.export / "plugins/hawkscan/hooks/cursor/stop.sh").chmod(0o644)
-        self.assert_refused("plugins/hawkscan/hooks/cursor/stop.sh differs from the export manifest")
+        (self.export / "cursor-plugins/hawkscan/hooks/cursor/stop.sh").chmod(0o644)
+        self.assert_refused("cursor-plugins/hawkscan/hooks/cursor/stop.sh differs from the export manifest")
 
     def test_a_listed_file_missing_from_the_export_is_refused(self):
         (self.export / "install/install.ps1").unlink()
@@ -368,6 +390,7 @@ class SyncExportTest(unittest.TestCase):
     def test_an_export_without_a_required_file_is_refused(self):
         for path in ("install/install.ps1", ".cursor-plugin/marketplace.json",
                      "plugins/stackhawk-api/.cursor-plugin/plugin.json",
+                     "cursor-plugins/hawkscan/.cursor-plugin/plugin.json",
                      "bundles/wingman/.cursor-plugin/plugin.json",
                      "bundles/wingman/.github/plugin/plugin.json"):
             with self.subTest(path=path):
@@ -378,7 +401,8 @@ class SyncExportTest(unittest.TestCase):
 
     def test_an_unexpected_export_path_is_refused(self):
         for path in ("notes.txt", "install/extra.sh", "bundles/other/README.md", "plugins/unlisted/README.md",
-                     ".cursor-plugin/plugin.json", "scripts/sync.py"):
+                     ".cursor-plugin/plugin.json", "scripts/sync.py", "cursor-plugins/stackhawk-api/README.md",
+                     "cursor-plugins/unlisted/README.md", "cursor-plugins/README.md"):
             with self.subTest(path=path):
                 build_export(self.export, self.sha)
                 write(self.export / path, "unexpected\n")
@@ -410,6 +434,62 @@ class SyncExportTest(unittest.TestCase):
                 write(self.export / "plugins/wingman" / path, content)
                 write_manifest(self.export, self.sha)
                 self.assert_refused(f"the Claude snapshot of wingman {pattern}")
+
+    def test_cursor_files_in_the_claude_snapshot_of_a_cursor_only_plugin_are_refused(self):
+        cases = {
+            ".cursor-plugin/plugin.json": {"name": "hawkscan"},
+            "rules/stackhawk.mdc": ROUTER,
+            "hooks/cursor/plugin-hooks.json": STOP_HOOKS,
+        }
+        for path, content in cases.items():
+            with self.subTest(path=path):
+                build_export(self.export, self.sha)
+                write(self.export / "plugins/hawkscan" / path, content)
+                write_manifest(self.export, self.sha)
+                part = path.split("/")[0] if not path.startswith("hooks/") else "hooks/cursor"
+                self.assert_refused(f"the Claude snapshot of hawkscan carries {part}; .*cursor-plugins/hawkscan")
+        build_export(self.export, self.sha)
+        write(self.export / "plugins/hawkscan/skills/hawkscan/router.mdc", ROUTER)
+        write_manifest(self.export, self.sha)
+        self.assert_refused("the Claude snapshot of hawkscan carries a Cursor rule")
+
+    def test_a_cursor_rule_or_hook_in_any_claude_snapshot_is_refused(self):
+        # stackhawk-api serves Cursor from its Claude snapshot, so its Cursor manifest may stay,
+        # but a rule or a Cursor hook there would load next to the native Cursor install.
+        for path, content in (("rules/stackhawk.mdc", ROUTER), ("hooks/cursor/plugin-hooks.json", STOP_HOOKS)):
+            with self.subTest(path=path):
+                build_export(self.export, self.sha)
+                write(self.export / "plugins/stackhawk-api" / path, content)
+                write_manifest(self.export, self.sha)
+                self.assert_refused("the Claude snapshot of stackhawk-api carries")
+
+    def test_an_export_without_a_cursor_folder_for_a_plugin_is_refused(self):
+        cases = {
+            "no cursor map": (None, "has no cursor map"),
+            "wingman from plugins": (dict(CURSOR, wingman="plugins/wingman"),
+                                     "installs wingman in Cursor from plugins/wingman"),
+            "a plugin missing": ({k: v for k, v in CURSOR.items() if k != "stackhawk-api"},
+                                 "installs stackhawk-api in Cursor from None"),
+            "another folder": (dict(CURSOR, hawkscan="bundles/hawkscan"),
+                               "installs hawkscan in Cursor from bundles/hawkscan"),
+        }
+        for label, (cursor, pattern) in cases.items():
+            with self.subTest(case=label):
+                build_export(self.export, self.sha)
+                manifest = json.loads((self.export / "export-manifest.json").read_text())
+                if cursor is None:
+                    del manifest["cursor"]
+                else:
+                    manifest["cursor"] = cursor
+                write(self.export / "export-manifest.json", manifest)
+                self.assert_refused(pattern)
+
+    def test_a_cursor_catalog_that_differs_from_the_cursor_map_is_refused(self):
+        entries = [{"name": name, "source": f"./{CURSOR[name]}"} for name in CURATED]
+        entries[0]["source"] = "./plugins/hawkscan"
+        write(self.export / ".cursor-plugin/marketplace.json", {"name": "stackhawk", "plugins": entries})
+        write_manifest(self.export, self.sha)
+        self.assert_refused("Cursor catalog source of hawkscan is ./plugins/hawkscan, expected ./cursor-plugins/hawkscan")
 
     def test_a_claude_hook_without_a_stop_event_in_the_claude_wingman_is_accepted(self):
         write(self.export / "plugins/wingman/hooks/hooks.json",
@@ -470,10 +550,10 @@ class SyncExportTest(unittest.TestCase):
             "no router": ("bundles/wingman/rules/stackhawk.mdc", CONFIG_RULE, "0 router rules"),
             "no stop hook": ("bundles/wingman/hooks/cursor/plugin-hooks.json",
                              {"version": 1, "hooks": {"stop": []}}, "0 stop hooks"),
-            "two stop hooks": ("plugins/hawkscan/hooks/cursor/plugin-hooks.json",
+            "two stop hooks": ("cursor-plugins/hawkscan/hooks/cursor/plugin-hooks.json",
                                {"version": 1, "hooks": {"stop": STOP_HOOKS["hooks"]["stop"] * 2}},
                                "2 stop hooks"),
-            "a Claude stop hook too": ("plugins/hawkscan/hooks/cursor/plugin-hooks.json",
+            "a Claude stop hook too": ("cursor-plugins/hawkscan/hooks/cursor/plugin-hooks.json",
                                        {"version": 1, "hooks": {
                                            "stop": STOP_HOOKS["hooks"]["stop"],
                                            "Stop": [{"hooks": [{"command": STOP_COMMAND}]}]}},
@@ -507,11 +587,11 @@ class SyncExportTest(unittest.TestCase):
 
     def test_a_cursor_catalog_that_points_elsewhere_or_misses_a_plugin_is_refused(self):
         cases = {
-            "wingman from plugins": ([{"name": "hawkscan", "source": "./plugins/hawkscan"},
+            "wingman from plugins": ([{"name": "hawkscan", "source": "./cursor-plugins/hawkscan"},
                                       {"name": "stackhawk-api", "source": "./plugins/stackhawk-api"},
                                       {"name": "wingman", "source": "./plugins/wingman"}],
                                      "Cursor catalog source of wingman is ./plugins/wingman"),
-            "no stackhawk-api": ([{"name": "hawkscan", "source": "./plugins/hawkscan"},
+            "no stackhawk-api": ([{"name": "hawkscan", "source": "./cursor-plugins/hawkscan"},
                                   {"name": "wingman", "source": "./bundles/wingman"}],
                                  "Cursor catalog of the export has no stackhawk-api"),
         }
@@ -574,6 +654,7 @@ class SyncWithoutExportTest(unittest.TestCase):
         self.run_sync("v3.4.6")
         self.assertFalse((self.root / ".cursor-plugin/marketplace.json").exists())
         self.assertFalse((self.root / "install").exists())
+        self.assertFalse((self.root / "cursor-plugins").exists())
         self.assertEqual(list(self.root.glob("**/.cursor-plugin/plugin.json")), [])
 
     def test_a_failed_install_restores_every_path(self):
