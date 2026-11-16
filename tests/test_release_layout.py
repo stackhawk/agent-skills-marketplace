@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 
@@ -264,13 +265,22 @@ class CursorLayoutTest(unittest.TestCase):
     def test_scripts_and_the_legacy_rule_list_keep_lf_line_endings(self):
         # Git for Windows checks text out with CRLF by default. Bash then fails on install.sh
         # and the stop hook, and install.sh no longer matches the legacy rule names it reads.
-        attributes = (ROOT / ".gitattributes").read_text().splitlines()
-        self.assertIn("*.sh text eol=lf", attributes)
-        self.assertIn("install/cursor-legacy-rules.txt text eol=lf", attributes)
         checked = [*ROOT.glob("*/*/hooks/cursor/stop.sh"), *ROOT.glob("install/*.sh"),
                    *ROOT.glob("install/cursor-legacy-rules.txt")]
-        for path in checked:
-            with self.subTest(path=path.relative_to(ROOT).as_posix()):
+        self.assertTrue(checked)
+        names = [path.relative_to(ROOT).as_posix() for path in checked]
+        output = subprocess.run(
+            ["git", "-C", str(ROOT), "check-attr", "text", "eol", "--", *names],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        attributes = {}
+        for line in output.splitlines():
+            name, attribute, value = line.rsplit(": ", 2)
+            attributes[name, attribute] = value
+        for path, name in zip(checked, names):
+            with self.subTest(path=name):
+                self.assertEqual(attributes[name, "text"], "set")
+                self.assertEqual(attributes[name, "eol"], "lf")
                 self.assertNotIn(b"\r", path.read_bytes())
 
 

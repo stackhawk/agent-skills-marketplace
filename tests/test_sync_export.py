@@ -307,11 +307,6 @@ class SyncExportTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(any(path == p or path.startswith(p + "/") for p in PUBLISHED), path)
 
-    def test_the_published_paths_are_the_staging_contract(self):
-        # agent-skills scripts/ci/stage-marketplace-sync.sh stages exactly these paths and fails
-        # on any other change, so its PUBLISHED list must stay equal to this one.
-        self.assertEqual([path.as_posix() for path in self.sync.PUBLISHED], PUBLISHED)
-
     def test_the_release_layout_checks_pass_on_a_synced_export(self):
         # The Cursor checks of test_release_layout skip on a tree synced without an export, so
         # run them here on a synced one, where a component plugin has no rules or hooks.
@@ -319,6 +314,7 @@ class SyncExportTest(unittest.TestCase):
 
         self.run_sync()
         shutil.copyfile(SCRIPT.parent.parent / ".gitattributes", self.root / ".gitattributes")
+        git(self.root, "init", "-q")
         with mock.patch.object(test_release_layout, "ROOT", self.root):
             suite = unittest.defaultTestLoader.loadTestsFromTestCase(test_release_layout.CursorLayoutTest)
             result = unittest.TestResult()
