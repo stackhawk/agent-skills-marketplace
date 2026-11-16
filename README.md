@@ -101,7 +101,7 @@ The Claude catalog uses local paths so the directory can inspect each plugin. Th
 
 The `agent-skills` release workflow does the sync. It does not write the external-source Claude catalog. For each release tag, it runs `scripts/sync-agent-skills.py` from this repository and runs the tests. Then it commits only the sync outputs to `main` here. From the `agent-skills` release that adds `scripts/export-marketplace.py`, the workflow exports the release payload with that script, runs the sync with `--export`, and also runs its `scripts/check-marketplace-layout.py` and `scripts/ci/stage-marketplace-sync.sh`. Its validate job runs the same steps on a clone of `main` here before it claims a release number.
 
-Merge `--export` support here before `agent-skills` merges `scripts/export-marketplace.py`. From that merge on, the validate job of every release runs this sync with `--export`, and it fails until `main` here accepts that option. The same holds for a new export format: this sync reads only format 2, so merge a change that reads a new format here before `agent-skills` merges the change that writes it.
+The `agent-skills` source now uses `--export` in its release validation. This compatibility change must reach marketplace `main` before that validation can pass and claim a release number. The current published payload stays pinned to v2.7.5 until a real tagged source release exports and syncs its files. The same ordering applies to a new export format: this sync reads only format 2, so marketplace support must land before source release validation uses a newer format.
 
 To sync by hand, use a local `agent-skills` checkout that contains the release tag:
 
