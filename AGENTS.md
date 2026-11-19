@@ -2,7 +2,7 @@
 
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
 
-- Run `scripts/sync-agent-skills.py` with a released tag from a local `stackhawk/agent-skills` checkout to regenerate catalogs, plugin snapshots, and `skills/`; see [README.md](README.md#updating-the-pinned-version). Do not edit generated outputs by hand.
+- Run `scripts/sync-agent-skills.py` with a released tag from a local `stackhawk/agent-skills` checkout (and `--export` with that tag's export, for a tag that carries the Cursor adapter) to regenerate catalogs, plugin snapshots, `skills/`, and the installers; see [README.md](README.md#updating-the-pinned-version). Do not edit generated outputs by hand.
 - Validate the Claude catalog with `claude plugin validate --strict .` and each `plugins/<name>` folder with the same command. The Codex and Copilot catalogs use their own schemas.
 
 ## Maintaining this file

@@ -4,7 +4,7 @@
 
 Plugin marketplace catalog for [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills).
 
-This is a public catalog pinned to a tested `agent-skills` release. Every catalog installs from this repository through relative sources, so the marketplace commit that you add is the one pin for all agents. Claude, Codex, and GitHub Copilot CLI install the plugin snapshots in `plugins/`. Codex and Copilot install Wingman from `bundles/wingman/`, because they cannot install plugin dependencies. The standalone `skills/` copies serve tools that install directly from `SKILL.md`. Updating this repo rolls out a GA release independently of development in `agent-skills`.
+This is a public catalog pinned to a tested `agent-skills` release. Every catalog installs from this repository through relative sources, so the marketplace commit that you add is the one pin for all agents. Claude, Codex, and GitHub Copilot CLI install the plugin snapshots in `plugins/`. Codex and Copilot install Wingman from `bundles/wingman/`, because they cannot install plugin dependencies, and so does Cursor from the first release with the Cursor catalog. The standalone `skills/` copies serve tools that install directly from `SKILL.md`. Updating this repo rolls out a GA release independently of development in `agent-skills`.
 
 The catalog publishes six plugins: **`hawkscan`** (DAST scanning), **`stackhawk-api`** (StackHawk platform API), **`hawkscan-ci`** (CI integration), **`stackhawk-data-seed`** (seed data for authenticated scans), **`stackhawk-optimize`** (scan tuning), and **`wingman`** (umbrella: installs the default skill set).
 
@@ -24,7 +24,7 @@ The marketplace serves several agents. Pick yours:
 
 Use this repository as the source when submitting the marketplace directory in the [developer portal](https://claude.ai/directory/manage). Its [Claude catalog](.claude-plugin/marketplace.json) points at six plugin folders inside the same repository, as the directory requires. It does not list `bundles/`. Run `claude plugin validate --strict .` and validate every `plugins/<name>` folder locally, then use the portal's **Validate** action on the commit you intend to submit. The [portal checklist](https://claude.com/docs/plugins/pre-submission-checklist) checks more than the CLI, including each plugin's README. Validate again after changing the tracked commit. Submission and publication are separate actions.
 
-Wingman is an umbrella plugin. It has no direct skill; its `dependencies` field installs `hawkscan`, `stackhawk-api`, `stackhawk-data-seed`, and `stackhawk-optimize` from this marketplace in Claude Code. Codex and Copilot ignore that field, so their Wingman bundle in `bundles/wingman/` contains copies of those four skills. The directory may describe Wingman as having no components, so review its listing text before publishing.
+Wingman is an umbrella plugin. It has no direct skill; its `dependencies` field installs `hawkscan`, `stackhawk-api`, `stackhawk-data-seed`, and `stackhawk-optimize` from this marketplace in Claude Code. Codex, Copilot, and Cursor ignore that field, so their Wingman bundle in `bundles/wingman/` contains copies of those four skills. The directory may describe Wingman as having no components, so review its listing text before publishing.
 
 ### Codex
 
@@ -54,7 +54,25 @@ Add `-g` for a user-level install. This installs five skills: `hawkscan`, `stack
 
 This path installs skills only (`SKILL.md` + `references/`), not plugin hooks. For the full plugin with hooks, use the per-agent plugin commands above; each also has a scriptable CLI form (`claude plugin install wingman@stackhawk`, `codex plugin add hawkscan@stackhawk`, `copilot plugin install wingman@stackhawk`) after the matching `marketplace add`.
 
-> **Cursor** and **Antigravity (`agy`)** don't consume this marketplace. They install directly from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills) (Cursor copies the generated `.mdc` rules; `agy plugin install <agent-skills repo URL>`). See the agent-skills README for their steps.
+### Cursor
+
+The Cursor catalog (`.cursor-plugin/marketplace.json`) and the installers in `install/` arrive with the first `agent-skills` release that the sync publishes with `--export` (see [Updating the pinned version](#updating-the-pinned-version)). Until this repository has them, install Cursor from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills) as its README describes.
+
+**Project install** (recommended; Cursor Cloud Agents and the headless CLI read only the project's `.cursor/`). Run the released installer from a clone of this repository:
+
+```
+bash agent-skills-marketplace/install/install.sh --platform cursor --target .
+```
+
+On Windows, run `.\agent-skills-marketplace\install\install.ps1 -Platform cursor -Target .`. The installer copies the five released skills into `.cursor/skills/`, the router rule `stackhawk.mdc` and the `stackhawk.yml` rule `stackhawk-config.mdc` into `.cursor/rules/`, and the stop hook into `.cursor/hooks/` with one entry in `.cursor/hooks.json`. It removes the rules that older StackHawk installers wrote. With your home directory as the target, it makes a user-level install of the skills and the stop hook only, because Cursor has no file-based user rules.
+
+**Team marketplace:** a Cursor team admin can import this repository as a team marketplace. Its Cursor catalog lists the same six plugins. Cursor installs Wingman from `bundles/wingman/`, which bundles its four skills, and `hawkscan` from `cursor-plugins/hawkscan/`. Enable `wingman` or the separate plugins, not both: `hawkscan` and `wingman` each carry the router rule and the stop hook.
+
+**One Cursor channel per project.** The project install and a plugin from this Cursor catalog each bring their own router rule and stop hook, so use one of them in a project, not both. A user-level install is a channel for every project on the machine: its stop hook runs in each of them, so do not combine it with a project install or a plugin from this catalog. Cursor also imports the plugins that you install in Claude Code (the Cursor CLI did in a live run; the Cursor app does according to its code). A Claude Code install can stay: the StackHawk Claude Code plugins carry no Cursor rule, and their hooks do nothing when Cursor runs them. Cursor then lists the StackHawk skills of that Claude Code install next to those of the Cursor channel. In a headless run, the Cursor CLI loads the skills of a plugin but does not give its rules to the agent, and it runs stop hooks only in interactive sessions. For the router rule in headless runs, use the project install.
+
+The stop hook is a bash script. On Windows, Cursor needs bash (for example Git for Windows) to run it.
+
+> **Antigravity (`agy`)** doesn't consume this marketplace. It installs directly from [stackhawk/agent-skills](https://github.com/stackhawk/agent-skills) (`agy plugin install <agent-skills repo URL>`). See the agent-skills README for its steps.
 
 ## Structure
 
@@ -63,31 +81,41 @@ This path installs skills only (`SKILL.md` + `references/`), not plugin hooks. F
 .agents/plugins/marketplace.json  # Codex - local plugin paths
 .codex-plugin/marketplace.json    # legacy Codex path
 .github/plugin/marketplace.json   # GitHub Copilot CLI - local plugin paths
+.cursor-plugin/marketplace.json   # Cursor - local plugin paths
 plugins/<name>/                  # released plugin snapshots
-bundles/wingman/                 # Wingman with bundled skills for Codex and Copilot
+bundles/wingman/                 # Wingman with bundled skills for Codex, Copilot, and Cursor
+cursor-plugins/hawkscan/         # hawkscan for Cursor: the skill, the two rules and the stop hook
+install/                         # released Cursor and Copilot installers
 skills/<name>/                   # standalone skills for the skills CLI
 sources.json                     # source tag, SHA, and plugin path mapping
 scripts/sync-agent-skills.py     # repeatable release sync
 overrides/<name>/README.md       # README fallbacks for older source tags
-overrides/wingman-bundle/README.md # README for the Codex and Copilot Wingman bundle
+overrides/wingman-bundle/README.md # README for the Wingman bundle
 ```
 
-The Claude catalog uses local paths so the directory can inspect each plugin. The Codex and Copilot catalogs use the same local paths in their own source schemas, except for Wingman. `sources.json` records the exact upstream commit for all copied files.
+The Claude catalog uses local paths so the directory can inspect each plugin. The Codex, Copilot, and Cursor catalogs use the same local paths in their own source schemas, except for Wingman, which they install from `bundles/wingman/`, and the Cursor `hawkscan`, which installs from `cursor-plugins/hawkscan/`. Cursor imports Claude Code plugins, so no Claude snapshot in `plugins/` carries a Cursor rule or Cursor hook, and the Claude `plugins/hawkscan/` and `plugins/wingman/` carry no Cursor files. The Claude Code hooks of `plugins/hawkscan/` stay: they do nothing when Cursor runs them. `sources.json` records the exact upstream commit for all copied files.
 
 ## Updating the pinned version
 
-**The catalogs, plugin snapshots, and standalone skills are generated.** Do not edit the generated output by hand.
+**The catalogs, plugin snapshots, standalone skills, and installers are generated.** Do not edit the generated output by hand.
 
-The `agent-skills` release workflow does the sync. It does not write the external-source Claude catalog. For each release tag, it runs `scripts/sync-agent-skills.py` from this repository and runs the tests. Then it opens a sync pull request here for review. Merge that pull request to publish the release.
+The `agent-skills` release workflow does the sync. It does not write the external-source Claude catalog. For each release tag, it runs `scripts/sync-agent-skills.py` from this repository and runs the tests. Then it commits only the sync outputs to `main` here. From the `agent-skills` release that adds `scripts/export-marketplace.py`, the workflow exports the release payload with that script, runs the sync with `--export`, and also runs its `scripts/check-marketplace-layout.py` and `scripts/ci/stage-marketplace-sync.sh`. Its validate job runs the same steps on a clone of `main` here before it claims a release number.
 
-Merge this repository's local-path layout before the next `agent-skills` release is dispatched. The release workflow needs `scripts/sync-agent-skills.py` in this repository.
+The `agent-skills` source now uses `--export` in its release validation. This compatibility change must reach marketplace `main` before that validation can pass and claim a release number. The current published payload stays pinned to v2.7.5 until a real tagged source release exports and syncs its files. The same ordering applies to a new export format: this sync reads only format 2, so marketplace support must land before source release validation uses a newer format.
 
 To sync by hand, use a local `agent-skills` checkout that contains the release tag:
 
 ```bash
-python3 scripts/sync-agent-skills.py --source-repo /path/to/agent-skills --tag vX.Y.Z
+python3 /path/to/agent-skills/scripts/export-marketplace.py --source-repo /path/to/agent-skills \
+  --ref vX.Y.Z --version X.Y.Z --dest /tmp/agent-skills-export
+python3 scripts/sync-agent-skills.py --source-repo /path/to/agent-skills --tag vX.Y.Z \
+  --export /tmp/agent-skills-export
 python3 -m unittest discover -s tests
+python3 /path/to/agent-skills/scripts/check-marketplace-layout.py --run-installers --version X.Y.Z .
+bash /path/to/agent-skills/scripts/ci/stage-marketplace-sync.sh .
 ```
+
+The export holds the Claude-oriented plugin snapshots, the complete Wingman bundle, the Cursor-only `hawkscan`, the Cursor catalog, and the installers, as `agent-skills` builds them, and a manifest of every file. The last command stages the sync outputs, and it fails when the sync changed any other path. For a tag older than the export, run only the sync without `--export`, and the tests. That sync copies the plugin folders of the tag. It refuses a tag that carries the Cursor adapter, and it removes the Cursor catalog and installers of an earlier sync.
 
 To preview the directory checks locally, run the Claude validator on the catalog and on each plugin:
 
@@ -96,7 +124,9 @@ claude plugin validate --strict .
 for plugin in plugins/*; do claude plugin validate --strict "$plugin"; done
 ```
 
-The release version comes from `--tag`, not from the tagged tree: the script stamps it into every plugin manifest, each `SKILL.md` `version:` line, and Wingman's Copilot skill copies, so placeholder in-tree versions are fine. It records the tag's SHA in `sources.json` and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It moves Wingman's bundled skills from `plugins/wingman/` to `bundles/wingman/`, and writes the bundle README from `overrides/wingman-bundle/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
+The release version comes from `--tag`, not from the tagged tree: the script stamps it into every plugin manifest, each `SKILL.md` `version:` line, and Wingman's bundled skill copies, so placeholder in-tree versions are fine. It records the tag's SHA in `sources.json` and refuses a moved tag. It copies the six plugin folders, adds verified StackHawk listing URLs, and supplies missing README files from `overrides/`. It keeps Wingman's bundled skills, Copilot manifest, and Cursor files in `bundles/wingman/` only, and writes the bundle README from `overrides/wingman-bundle/`. It regenerates all catalogs and standalone skills, and keeps Wingman's dependencies within this catalog. Review and commit the generated diff before publishing.
+
+With `--export`, the script copies the export into its stage, checks that copy, and builds from it. The export must be of the tag's commit and version (format 2), map each plugin to its folder in `sources.json`, and name the folder that Cursor installs each plugin from. Each file that its manifest lists must have the listed sha256, size, and mode. The export must hold no other file, no path outside its layout, and no symlink or special file, and it must hold every file that the published layout needs. The script then refuses a Claude snapshot with a Cursor rule or Cursor hook, a Claude `plugins/hawkscan/` or `plugins/wingman/` with any Cursor file, a Claude `plugins/wingman/` with bundle files, and a Cursor install that loads more than one router rule or stop hook. A Cursor install that carries the `hawkscan` skill must load exactly one of each. A plugin of the export that `sources.json` does not list is not published.
 
 ## Why a separate repo
 

@@ -1,8 +1,10 @@
 """Check the release layout that Claude and the other marketplaces consume."""
 
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 
@@ -109,6 +111,177 @@ class ReleaseLayoutTest(unittest.TestCase):
         dependencies = read_json("plugins/wingman/.claude-plugin/plugin.json")["dependencies"]
         for name in dependencies:
             self.assertIn(f"`{name}`", bundle_readme)
+
+
+CURSOR_CATALOG = ".cursor-plugin/marketplace.json"
+INSTALLERS = ("install.sh", "install.ps1", "cursor-legacy-rules.txt")
+STOP_SCRIPT_ROOT = "${CURSOR_PLUGIN_ROOT}/"
+NOT_ALWAYS_APPLIED = {"", "false", "no", "off", "0"}
+RULE_SUFFIXES = (".mdc", ".md", ".markdown")
+CURSOR_ONLY_ROOT = "cursor-plugins"
+CURSOR_PARTS = (".cursor-plugin", "rules", "hooks/cursor")
+
+
+def cursor_folder(name):
+    """wingman installs from its bundle, a plugin with a Cursor-only folder from that folder,
+    any other plugin from its Claude snapshot."""
+    if name == "wingman":
+        return f"bundles/{name}"
+    if (ROOT / CURSOR_ONLY_ROOT / name).is_dir():
+        return f"{CURSOR_ONLY_ROOT}/{name}"
+    return f"plugins/{name}"
+
+
+def named_paths(folder, manifest, key, default):
+    """The paths a Cursor manifest names for one component, which must exist; else the default
+    path, when the plugin has it."""
+    if key not in manifest:
+        return [folder / default] if (folder / default).exists() else []
+    value = manifest[key]
+    paths = [folder / path for path in ([value] if isinstance(value, str) else value)]
+    missing = [path for path in paths if not path.exists()]
+    if missing:
+        raise AssertionError(f"{folder}: the Cursor manifest names missing {key} paths {missing}")
+    return paths
+
+
+def is_router(rule):
+    """A rule Cursor always applies: an alwaysApply value that is not clearly false."""
+    frontmatter = re.match(r"---\r?\n(.*?)\r?\n---", rule.read_text(), re.DOTALL)
+    values = re.findall(r"^alwaysApply:(.*)$", frontmatter.group(1) if frontmatter else "", re.MULTILINE)
+    return any(
+        value.split(" #")[0].strip().strip("'\"").strip().lower() not in NOT_ALWAYS_APPLIED for value in values
+    )
+
+
+def cursor_install(folder):
+    """The router rules and the stop hook commands Cursor loads from one plugin folder."""
+    root = ROOT / folder
+    manifest = read_json(f"{folder}/.cursor-plugin/plugin.json")
+    rules = []
+    for path in named_paths(root, manifest, "rules", "rules"):
+        found = sorted(path.rglob("*")) if path.is_dir() else [path]
+        rules += [rule for rule in found if rule.is_file() and (rule.suffix in RULE_SUFFIXES or not path.is_dir())]
+    stops = []
+    for path in named_paths(root, manifest, "hooks", "hooks/hooks.json"):
+        if path.is_file():
+            events = json.loads(path.read_text())["hooks"]
+            stops += [entry["command"] for entry in events.get("stop", [])]
+            stops += [hook["command"] for group in events.get("Stop", []) for hook in group.get("hooks", [])]
+    return [rule.relative_to(root).as_posix() for rule in rules if is_router(rule)], stops
+
+
+class CursorLayoutTest(unittest.TestCase):
+    """The Cursor outputs come from an agent-skills export (sync-agent-skills.py --export).
+
+    A tag synced without the export has none of them, so the Cursor checks skip until the
+    first export sync. The Claude wingman never carries Cursor files: the Cursor app imports
+    Claude Code plugins, and they would load the router rule and the stop hook a second time
+    next to the hawkscan dependency. For the same reason, no Claude snapshot carries a Cursor
+    rule or Cursor hook, and the Claude snapshot of a plugin with a Cursor-only folder carries no
+    Cursor file.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        sources = read_json("sources.json")
+        cls.plugins = sources["plugins"]
+        cls.version = sources["tag"].removeprefix("v")
+        cls.cursor = (ROOT / CURSOR_CATALOG).is_file()
+
+    def require_cursor(self):
+        if not self.cursor:
+            self.skipTest("no Cursor catalog: the synced tag predates the agent-skills export")
+
+    def test_claude_wingman_carries_no_cursor_or_bundle_files(self):
+        wingman = ROOT / "plugins" / "wingman"
+        for part in (".cursor-plugin", "rules", "hooks/cursor", "copilot-skills", ".github"):
+            self.assertFalse((wingman / part).exists(), part)
+        self.assertEqual(list(wingman.rglob("*.mdc")), [])
+        hooks = wingman / "hooks" / "hooks.json"
+        events = json.loads(hooks.read_text()).get("hooks", {}) if hooks.is_file() else {}
+        self.assertEqual([event for event in events if event.lower() == "stop"], [])
+
+    def test_claude_snapshots_carry_no_cursor_rule_or_hook(self):
+        self.require_cursor()
+        for name in self.plugins:
+            with self.subTest(plugin=name):
+                snapshot = ROOT / "plugins" / name
+                own = cursor_folder(name) == f"plugins/{name}"
+                for part in CURSOR_PARTS[1:] if own else CURSOR_PARTS:
+                    self.assertFalse((snapshot / part).exists(), part)
+                if not own:
+                    self.assertEqual(list(snapshot.rglob("*.mdc")), [])
+
+    def test_cursor_outputs_are_all_present_or_all_absent(self):
+        outputs = [CURSOR_CATALOG, *(f"install/{name}" for name in INSTALLERS)]
+        outputs += [f"{cursor_folder(name)}/.cursor-plugin/plugin.json" for name in self.plugins]
+        present = {path: (ROOT / path).is_file() for path in outputs}
+        self.assertEqual(set(present.values()), {self.cursor}, present)
+        if not self.cursor:
+            self.assertFalse((ROOT / "install").exists())
+            self.assertFalse((ROOT / CURSOR_ONLY_ROOT).exists())
+            self.assertEqual(list(ROOT.glob("*/*/.cursor-plugin")), [])
+
+    def test_cursor_catalog_lists_the_released_folders(self):
+        self.require_cursor()
+        catalog = read_json(CURSOR_CATALOG)
+        self.assertEqual([entry["name"] for entry in catalog["plugins"]], list(self.plugins))
+        for entry in catalog["plugins"]:
+            with self.subTest(plugin=entry["name"]):
+                folder = cursor_folder(entry["name"])
+                self.assertEqual(entry["source"], f"./{folder}")
+                manifest = read_json(f"{folder}/.cursor-plugin/plugin.json")
+                self.assertEqual(manifest["name"], entry["name"])
+                self.assertEqual(manifest["version"], self.version)
+
+    def test_cursor_installs_load_one_router_and_one_stop_hook_at_most(self):
+        self.require_cursor()
+        for name in self.plugins:
+            with self.subTest(plugin=name):
+                routers, stops = cursor_install(cursor_folder(name))
+                self.assertLessEqual(len(routers), 1, routers)
+                self.assertLessEqual(len(stops), 1, stops)
+                for command in stops:
+                    script = command.strip().strip('"')
+                    self.assertTrue(script.startswith(STOP_SCRIPT_ROOT), command)
+                    target = ROOT / cursor_folder(name) / script.removeprefix(STOP_SCRIPT_ROOT)
+                    self.assertTrue(os.access(target, os.X_OK), target)
+
+    def test_hawkscan_and_the_wingman_bundle_load_exactly_one_router_and_one_stop_hook(self):
+        self.require_cursor()
+        for folder in (cursor_folder("hawkscan"), "bundles/wingman"):
+            with self.subTest(folder=folder):
+                routers, stops = cursor_install(folder)
+                self.assertEqual(routers, ["rules/stackhawk.mdc"])
+                self.assertEqual(len(stops), 1, stops)
+
+    def test_cursor_installers_are_released(self):
+        self.require_cursor()
+        self.assertTrue(os.access(ROOT / "install" / "install.sh", os.X_OK))
+        legacy = (ROOT / "install" / "cursor-legacy-rules.txt").read_text().splitlines()
+        self.assertTrue([line for line in legacy if line.strip() and not line.startswith("#")])
+
+    def test_scripts_and_the_legacy_rule_list_keep_lf_line_endings(self):
+        # Git for Windows checks text out with CRLF by default. Bash then fails on install.sh
+        # and the stop hook, and install.sh no longer matches the legacy rule names it reads.
+        checked = [*ROOT.glob("*/*/hooks/cursor/stop.sh"), *ROOT.glob("install/*.sh"),
+                   *ROOT.glob("install/cursor-legacy-rules.txt")]
+        self.assertTrue(checked)
+        names = [path.relative_to(ROOT).as_posix() for path in checked]
+        output = subprocess.run(
+            ["git", "-C", str(ROOT), "check-attr", "text", "eol", "--", *names],
+            check=True, capture_output=True, text=True,
+        ).stdout
+        attributes = {}
+        for line in output.splitlines():
+            name, attribute, value = line.rsplit(": ", 2)
+            attributes[name, attribute] = value
+        for path, name in zip(checked, names):
+            with self.subTest(path=name):
+                self.assertEqual(attributes[name, "text"], "set")
+                self.assertEqual(attributes[name, "eol"], "lf")
+                self.assertNotIn(b"\r", path.read_bytes())
 
 
 if __name__ == "__main__":
