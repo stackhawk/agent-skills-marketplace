@@ -1,5 +1,6 @@
 {
   "name": "stackhawk-optimize",
+  "version": "2.7.6",
   "description": "Analyze a codebase and produce an optimal HawkScan setup (tech flags, scan-policy plugin selection, stackhawk.yml corrections), apply it as a non-destructive trial, run one trial scan, and promote or discard.",
   "author": {
     "name": "StackHawk",
@@ -19,6 +20,5 @@
     "tech-flags",
     "dast"
   ],
-  "skills": "./skills/",
-  "version": "2.7.5"
+  "skills": "./skills/"
 }

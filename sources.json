@@ -1,7 +1,7 @@
 {
   "repository": "stackhawk/agent-skills",
-  "tag": "v2.7.5",
-  "sha": "c4a0ebade3e7725de0db124f70125f4f91297002",
+  "tag": "v2.7.6",
+  "sha": "7e2b48c80e8c4bf84633a7b727a51ed1d952f9c0",
   "plugins": {
     "hawkscan": "plugins/hawkscan",
     "stackhawk-api": "plugins/api",
